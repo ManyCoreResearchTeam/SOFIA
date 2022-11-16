@@ -1,0 +1,162 @@
+################################################################################
+# ARMV7-A.makefile.include
+################################################################################
+#/*
+# * Copyright (c) 2005-2016 Imperas Software Ltd., www.imperas.com
+# *
+# * Licensed under the Apache License, Version 2.0 (the "License");
+# * you may not use this file except in compliance with the License.
+# * You may obtain a copy of the License at
+# *
+# *   http://www.apache.org/licenses/LICENSE-2.0
+# *
+# * Unless required by applicable law or agreed to in writing, software
+# * distributed under the License is distributed on an "AS IS" BASIS,
+# * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# * either express or implied.
+# *
+# * See the License for the specific language governing permissions and
+# * limitations under the License.
+# *
+# */
+################################################################################
+#
+# Makefile for ARM Cortex-A/R 32-bit targets using ARM Embedded toolchain
+# downloaded from https://launchpad.net/gcc-arm-embedded
+#
+################################################################################
+#
+# Include this file from Makefiles which build code for the ARMv7 Cortex-A/R
+# architectures.
+#
+# This Makefile is generally included from a variant-specific makefile such as
+# ARM_CORTEX_A8.makefile.include which first sets the following variables:
+#    IMPERAS_ARM_TARGET
+#    $(IMPERAS_ARM_TGT)_SEMIHOST
+#    $(IMPERAS_ARM_TGT)_CFLAGS
+#
+# For example:
+#
+# +------------------------- EXAMPLE USAGE: ----------------------------------+
+# 
+#  IMPERAS_ARM_TGT=ARM_CORTEX_A8
+#
+#  # Default to NEWLIB (use ANGEL for ARM Angel semihosting, blank for no semihost)
+#  ARM_CORTEX_A8_SEMIHOST?=NEWLIB
+#
+#  ARM_CORTEX_A8_CFLAGS=-mcpu=cortex-a8 -march=armv7-a -mfpu=neon
+#
+#  include $(IMPERAS_HOME)/lib/$(IMPERAS_ARCH))/ARMV7-A.makefile.include
+#
+#  app.elf: main.o support.o 
+#      $(IMPERAS_LINK)  -o $@  $^  $(IMPERAS_LDFLAGS)
+#
+#  main.o: main.c support.h
+#      $(IMPERAS_CC)  -c  -o $@  $<
+#
+#  # etc...
+#
+# +----------------------------------------------------------------------------+
+#
+# Note:
+#  - Imperas-specific CFLAGS and include paths are already included in the
+#    $(IMPERAS_CC) and $(IMPERAS_CXX) commands
+#  - The $(IMPERAS_LDFLAGS) variable must be specified at the end of a link
+#    command if libimperas.a is used by the application
+#
+
+# Check that Imperas Environment is set
+ifndef IMPERAS_HOME
+  IMPERAS_ERROR := $(error "IMPERAS_HOME not defined")
+endif
+ifndef IMPERAS_ARCH
+  IMPERAS_ERROR := $(error "IMPERAS_ARCH not defined")
+endif
+
+include $(BAREMETAL_FOLDER)/Makefile.common.include
+
+#
+# Prefix to make variable names unique
+#
+IMPERAS_ARM_TGT?=ARMV7-A
+
+#
+# specs file for link command determined by semihost selection
+#
+ifeq ($($(IMPERAS_ARM_TGT)_SEMIHOST),NEWLIB)
+  $(IMPERAS_ARM_TGT)_SPECS ?= -specs=nosys.specs
+else ifeq ($($(IMPERAS_ARM_TGT)_SEMIHOST),ANGEL)
+  $(IMPERAS_ARM_TGT)_SPECS ?= -specs=aprofile-validation.specs
+else ifneq ($($(IMPERAS_ARM_TGT)_SEMIHOST),)
+  $(error "$(IMPERAS_ARM_TGT)_SEMIHOST set to unknown value '$($(IMPERAS_ARM_TGT)_SEMIHOST)'. Use 'ANGEL', 'NEWLIB' or ''."
+endif
+
+#
+# Get directory names
+#
+$(IMPERAS_ARM_TGT)_CROSSCOMPILER   := $(ARM_TOOLCHAIN_BAREMETAL)
+$(IMPERAS_ARM_TGT)_TARGETLIBRARIES := $(IMPERAS_HOME)/lib/$(IMPERAS_ARCH)/TargetLibraries
+$(IMPERAS_ARM_TGT)_IMPPUBLIC       := $(IMPERAS_HOME)/ImpPublic
+
+#
+# Set compile and link parameters
+#
+$(IMPERAS_ARM_TGT)_INCLUDES        := -I$($(IMPERAS_ARM_TGT)_IMPPUBLIC)/include/target/application \
+                                      -I$($(IMPERAS_ARM_TGT)_TARGETLIBRARIES)/include/armv7
+$(IMPERAS_ARM_TGT)_CFLAGS          += -gdwarf-2 -mlittle-endian
+$(IMPERAS_ARM_TGT)_AFLAGS          := $($(IMPERAS_ARM_TGT)_CFLAGS)
+$(IMPERAS_ARM_TGT)_LDFLAGS         := -limperas
+$(IMPERAS_ARM_TGT)_LINKER_SCRIPT   ?= #-T $($(IMPERAS_ARM_TGT)_CROSSCOMPILER)/Imperas.ld
+$(IMPERAS_ARM_TGT)_LDFLAGS0        := -L$($(IMPERAS_ARM_TGT)_TARGETLIBRARIES)/armv7-elf$($(IMPERAS_ARM_TGT)_TL_SUBDIR) \
+                                       $($(IMPERAS_ARM_TGT)_LINKER_SCRIPT) \
+                                       $($(IMPERAS_ARM_TGT)_SPECS)
+
+#
+# Set toolchain commands
+#
+$(IMPERAS_ARM_TGT)_GCC      := $($(IMPERAS_ARM_TGT)_CROSSCOMPILER)/bin/$(ARM_TOOLCHAIN_BAREMETAL_PREFIX)-gcc
+$(IMPERAS_ARM_TGT)_CC       := $($(IMPERAS_ARM_TGT)_CROSSCOMPILER)/bin/$(ARM_TOOLCHAIN_BAREMETAL_PREFIX)-gcc $($(IMPERAS_ARM_TGT)_CFLAGS) $($(IMPERAS_ARM_TGT)_INCLUDES)
+$(IMPERAS_ARM_TGT)_CXX      := $($(IMPERAS_ARM_TGT)_CROSSCOMPILER)/bin/$(ARM_TOOLCHAIN_BAREMETAL_PREFIX)-g++ $($(IMPERAS_ARM_TGT)_CFLAGS) $($(IMPERAS_ARM_TGT)_INCLUDES)
+$(IMPERAS_ARM_TGT)_LINK     := $($(IMPERAS_ARM_TGT)_CROSSCOMPILER)/bin/$(ARM_TOOLCHAIN_BAREMETAL_PREFIX)-gcc $($(IMPERAS_ARM_TGT)_CFLAGS) $($(IMPERAS_ARM_TGT)_INCLUDES) $($(IMPERAS_ARM_TGT)_LDFLAGS0)
+$(IMPERAS_ARM_TGT)_LINKXX   := $($(IMPERAS_ARM_TGT)_CROSSCOMPILER)/bin/$(ARM_TOOLCHAIN_BAREMETAL_PREFIX)-g++ $($(IMPERAS_ARM_TGT)_CFLAGS) $($(IMPERAS_ARM_TGT)_INCLUDES) $($(IMPERAS_ARM_TGT)_LDFLAGS0)
+$(IMPERAS_ARM_TGT)_AS       := $($(IMPERAS_ARM_TGT)_CROSSCOMPILER)/bin/$(ARM_TOOLCHAIN_BAREMETAL_PREFIX)-as  $($(IMPERAS_ARM_TGT)_AFLAGS)
+$(IMPERAS_ARM_TGT)_LD       := $($(IMPERAS_ARM_TGT)_CROSSCOMPILER)/bin/$(ARM_TOOLCHAIN_BAREMETAL_PREFIX)-ld
+$(IMPERAS_ARM_TGT)_AR       := $($(IMPERAS_ARM_TGT)_CROSSCOMPILER)/bin/$(ARM_TOOLCHAIN_BAREMETAL_PREFIX)-ar
+$(IMPERAS_ARM_TGT)_NM       := $($(IMPERAS_ARM_TGT)_CROSSCOMPILER)/bin/$(ARM_TOOLCHAIN_BAREMETAL_PREFIX)-nm
+$(IMPERAS_ARM_TGT)_RANLIB   := $($(IMPERAS_ARM_TGT)_CROSSCOMPILER)/bin/$(ARM_TOOLCHAIN_BAREMETAL_PREFIX)-ranlib
+$(IMPERAS_ARM_TGT)_STRIP    := $($(IMPERAS_ARM_TGT)_CROSSCOMPILER)/bin/$(ARM_TOOLCHAIN_BAREMETAL_PREFIX)-strip
+$(IMPERAS_ARM_TGT)_READELF  := $($(IMPERAS_ARM_TGT)_CROSSCOMPILER)/bin/$(ARM_TOOLCHAIN_BAREMETAL_PREFIX)-readelf
+$(IMPERAS_ARM_TGT)_OBJDUMP  := $($(IMPERAS_ARM_TGT)_CROSSCOMPILER)/bin/$(ARM_TOOLCHAIN_BAREMETAL_PREFIX)-objdump
+$(IMPERAS_ARM_TGT)_OBJCOPY  := $($(IMPERAS_ARM_TGT)_CROSSCOMPILER)/bin/$(ARM_TOOLCHAIN_BAREMETAL_PREFIX)-objcopy
+$(IMPERAS_ARM_TGT)_GDB      := $(IMPERAS_HOME)/lib/$(IMPERAS_ARCH)/gdb/$(ARM_TOOLCHAIN_BAREMETAL_PREFIX)-gdb
+
+#
+# Copy toolchain commands out to IMPERAS_
+#
+IMPERAS_CROSSCOMPILER = $($(IMPERAS_ARM_TGT)_CROSSCOMPILER)
+IMPERAS_TARGETLIBRARIES = $($(IMPERAS_ARM_TGT)_TARGETLIBRARIES)
+IMPERAS_IMPPUBLIC = $($(IMPERAS_ARM_TGT)_IMPPUBLIC)
+IMPERAS_INCLUDES = $($(IMPERAS_ARM_TGT)_INCLUDES)
+IMPERAS_CFLAGS = $($(IMPERAS_ARM_TGT)_CFLAGS)
+IMPERAS_LDFLAGS0 = $($(IMPERAS_ARM_TGT)_LDFLAGS0)
+IMPERAS_LDFLAGS = $($(IMPERAS_ARM_TGT)_LDFLAGS)
+IMPERAS_CC = $($(IMPERAS_ARM_TGT)_CC)
+IMPERAS_CXX = $($(IMPERAS_ARM_TGT)_CXX)
+IMPERAS_LINK = $($(IMPERAS_ARM_TGT)_LINK)
+IMPERAS_LINKXX = $($(IMPERAS_ARM_TGT)_LINKXX)
+IMPERAS_AS = $($(IMPERAS_ARM_TGT)_AS)
+IMPERAS_LD = $($(IMPERAS_ARM_TGT)_LD)
+IMPERAS_AR = $($(IMPERAS_ARM_TGT)_AR)
+IMPERAS_NM = $($(IMPERAS_ARM_TGT)_NM)
+IMPERAS_RANLIB = $($(IMPERAS_ARM_TGT)_RANLIB)
+IMPERAS_STRIP = $($(IMPERAS_ARM_TGT)_STRIP)
+IMPERAS_READELF = $($(IMPERAS_ARM_TGT)_READELF)
+IMPERAS_OBJDUMP = $($(IMPERAS_ARM_TGT)_OBJDUMP)
+IMPERAS_OBJCOPY = $($(IMPERAS_ARM_TGT)_OBJCOPY)
+IMPERAS_GDB = $($(IMPERAS_ARM_TGT)_GDB)
+
+#
+# Ensure toolchain is available
+#
+IMPERAS_ERROR := $(if $(wildcard $($(IMPERAS_ARM_TGT)_GCC)*),, $(error "ERROR: ARMV7-A.makefile.include: Cannot find CrossCompiler $($(IMPERAS_ARM_TGT)_GCC)"))
+

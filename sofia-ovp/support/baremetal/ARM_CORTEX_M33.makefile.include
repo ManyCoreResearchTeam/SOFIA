@@ -1,0 +1,11 @@
+
+IMPERAS_ARM_TGT=ARM_CORTEX_M33
+
+# Default to NEWLIB, set to ANGEL for ARM Angel semihosting, blank for no semihost
+ARM_CORTEX_M33_SEMIHOST?=NEWLIB
+
+ARM_CORTEX_M33_CFLAGS=-mcpu=cortex-m33 -march=armv8-m.main
+
+include $(BAREMETAL_FOLDER)/ARMV8-M.makefile.include
+
+IMPERAS_LDFLAGS += -limperas

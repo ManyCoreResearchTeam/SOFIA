@@ -1,0 +1,10 @@
+
+IMPERAS_ARM_TGT=ARM_CORTEX_M0PLUS
+
+# Default to NEWLIB, set to ANGEL for ARM Angel semihosting, blank for no semihost
+ARM_CORTEX_M0PLUS_SEMIHOST?=NEWLIB
+
+ARM_CORTEX_M0PLUS_CFLAGS=-mcpu=cortex-m0plus -march=armv6-m
+ARM_CORTEX_M0PLUS_TL_SUBDIR = /armv6-m
+
+include $(BAREMETAL_FOLDER)/ARMV7-M.makefile.include

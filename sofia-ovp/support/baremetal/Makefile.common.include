@@ -1,0 +1,9 @@
+#
+# Use $(V) in place of '@' on command lines in Makefiles 
+# to control echoing command lines with VERBOSE=1 on make command
+# 
+ifeq ($(VERBOSE),1)
+  V=
+else
+  V=@
+endif

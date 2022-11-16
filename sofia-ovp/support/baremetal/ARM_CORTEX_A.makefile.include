@@ -1,0 +1,9 @@
+
+IMPERAS_ARM_TGT=ARM_CORTEX_A
+
+# Default to NEWLIB, set to ANGEL for ARM Angel semihosting, blank for no semihost
+ARM_CORTEX_A_SEMIHOST?=NEWLIB
+
+ARM_CORTEX_A_CFLAGS=-march=armv7-a
+
+include $(BAREMETAL_FOLDER)/ARMV7-A.makefile.include

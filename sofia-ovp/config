@@ -1,0 +1,217 @@
+#!/bin/bash
+
+: '
+This is the chosen architecture use in the cross-compiler
+makefile and use as filename extension
+ARM_CORTEX_M0, ARM_CORTEX_M0PLUS, ARM_CORTEX_M3, ARM_CORTEX_M4, ARM_CORTEX_M4F,
+ARM_CORTEX_M7, ARM_CORTEX_M7F, ARM_CORTEX_M33, ARM_CORTEX_M33F,
+ARM_CORTEX_A5, ARM_CORTEX_A7, ARM_CORTEX_A8, ARM_CORTEX_A9, 
+ARM_CORTEX_A53, ARM_CORTEX_A57, ARM_CORTEX_A72,
+RISCV32I, RISCV32IM, RISCV32IMAC, RISCV32GC,
+RISCV64IMAC, RISCV64GC'
+ARCHITECTURE=RISCV32I
+
+
+: '
+Number of TARGET cores
+*More than one core is supported only for apps running on top of Linux
+*You can use 2 or 4 cores with ARM_CORTEX_A9 and ARM_CORTEX_A72
+'
+NUM_CORES=1
+
+
+: '
+Number of NUMBER_OF_FAULTS that equals to the number of injected faults
+'
+NUMBER_OF_FAULTS=5
+FAULTS_PER_PLATFORM=1
+NUMBER_OF_BITFLIPS=1
+SEQUENTIAL_BIT_FLIP=0
+
+
+: '
+Generate a new fault list
+NO_GENERATION - Do not generate a new fault list
+GENERATE_FAULTS - Generate faults
+NO_FAULTS - Generate faults with no bit flips
+'
+GENERATE_FAULT_LIST=GENERATE_FAULTS
+
+
+: '
+The use of checkpoints will be defined by this two variables. If one of then is not equal to zero,
+all the flow will automatically adjust to use checkpoints. The first define the number of checkpoints
+according with the number of executed instructions in the gold run, thus defining the checkpoint interval.
+Additionally, is also possible define directly the interval.
+'
+NUMBER_CHKP=0
+CHECKPOINT_INTERVAL=0
+
+
+: '
+
+Registers to create/inject faults - leave empty for all registers
+# For Aarch32
+Int r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r12,sp,lr,pc
+Float d0-d15
+# For Aarch64
+Int x0-x30,sp,pc
+Float v0-v31
+# For RISCV
+Int ra,sp,gp,tp,t0,t1,t2,s0,s1,a0,a1,a2,a3,a4,a5,a6,a7,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,t3,t4,t5,t6,pc
+'
+REG_LIST=r0,r1,r2,r3,r4
+
+
+: '
+Fault Type choice
+functioncode -> Function code
+functiontrace -> Register file between function calling and return
+functiontrace2 -> Register file during function context execution
+memory -> Physical Memory
+memory2 -> Application Virtual Memory
+    options: FLASH (.text), RAM(.data and .bss)
+register -> Register file
+robdest -> Reorder Buffer destination register
+robsource -> Reorder Buffer Source register
+variable -> Trace and inject fault in a memory region
+variable2 -> Trace and inject fault the virtual memory region of the variable
+'
+FAULT_TYPE=register
+MEMORY_OPTIONS=
+
+
+: '
+Function Trace choice
+'
+SYMBOL=""
+
+
+: '
+Function Trace Instance.
+Ranges from 1 to n.
+If not defined, considers all instances.
+'
+FUNCTION_INSTANCE=
+
+
+# Enables the same number of faults per register
+GENERATE_FAULT_LIST_DISTR=1
+
+
+# Mem fault injection paramters
+TARGET_MEM_BASE=0x00010158 # Base
+TARGET_MEM_SIZE=0x0009c4a8 # TOP
+
+
+: '
+Workload selection
+WORKLOAD_BAREMETAL - bare metal apps
+WORKLOAD_LINUX - Linux apps
+'
+WORKLOAD_TYPE=WORKLOAD_BAREMETAL
+
+
+: '
+#Number of folders (1 = first folder)
+#list of applications through command line, if empty all application are selected
+'
+APPLICATION_LIST=($@)
+
+
+: '
+Linux Image source and options
+LI_USE_CLEAN -> use the clean version and replace the temporary image |[SUDO REQUIRED]|
+LI_APPEND -> append to the temporary image [Create one if not exist] |[SUDO REQUIRED]|
+LI_DONT_COMPILE -> Use the image available [Use in server without sudo access]
+LI_JUST_COMPILE -> Compile all applications and create the image [Without RUNNING]
+'
+LI_OPTIONS=LI_USE_CLEAN
+
+
+: '
+Execute only gold simulation
+'
+ONLY_GOLD=0
+
+
+: '
+#Enable UART window (debug)
+'
+ENABLE_CONSOLE=0
+ENABLE_GRAPHIC=0
+
+
+: '
+#Enable OVP Instruction Trace
+'
+ENABLE_TRACE=0
+
+
+: '
+#Enable Register Profiling
+Available only for ARM_CORTEX_A72 with Linux
+'
+ENABLE_PROFILING=0
+
+
+: '
+# Quantum / Time-Slice
+'
+TIME_SLICE=0.001
+
+
+: '
+Maximum number of parallel threads in the host CPU
+
+To use all cores (i.e., half the number of threads)
+PARALLEL=
+To use only "remote" cores, no threads/simulations will run locally
+PARALLEL=0
+To use local cores as well as "remote" cores, set the number of *local* cores:
+PARALLEL=#N
+'
+PARALLEL=
+
+
+: '
+#List of computers on cluster
+'
+CLUSTER=NONE
+
+
+: '
+#License server name
+'
+LICENSE=localhost
+
+
+: '
+#IMPERAS VERSION
+'
+IMPERAS_VERSION=20210408
+
+
+: '
+Cross Compiler configuration
+'
+# Compiler optimization flag
+export OPTFLAG=3
+
+# Bare Metal
+## Aarch32 - https://developer.arm.com/downloads/-/gnu-rm
+export ARM_TOOLCHAIN_BAREMETAL=/soft64/cross/gcc/arm-none-eabi_9.3.1
+export ARM_TOOLCHAIN_BAREMETAL_PREFIX=arm-none-eabi
+## Aarch64 - https://developer.arm.com/downloads/-/gnu-a
+export AARCH64_TOOLCHAIN_BAREMETAL=/soft64/cross/gcc/aarch64-none-elf_10.3.1
+## RISCV - https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack
+export RISCV_TOOLCHAIN_BAREMETAL=/soft64/cross/gcc/riscv-none-elf-gcc-12.1.0-2
+export RISCV_TOOLCHAIN_BAREMETAL_PREFIX=riscv-none-elf
+                        
+# Linux
+## Aarch32
+export ARM_TOOLCHAIN_LINUX=/usr
+export ARM_TOOLCHAIN_LINUX_PREFIX=arm-linux-gnueabi
+## Aarch64
+export AARCH64_TOOLCHAIN_LINUX=/usr
+export AARCH64_TOOLCHAIN_LINUX_PREFIX=aarch64-linux-gnu

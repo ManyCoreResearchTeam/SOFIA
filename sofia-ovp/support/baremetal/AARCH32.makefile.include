@@ -1,0 +1,124 @@
+################################################################################
+# AARCH32.makefile.include
+################################################################################
+#/*
+# * Copyright (c) 2005-2016 Imperas Software Ltd., www.imperas.com
+# *
+# * Licensed under the Apache License, Version 2.0 (the "License");
+# * you may not use this file except in compliance with the License.
+# * You may obtain a copy of the License at
+# *
+# *   http://www.apache.org/licenses/LICENSE-2.0
+# *
+# * Unless required by applicable law or agreed to in writing, software
+# * distributed under the License is distributed on an "AS IS" BASIS,
+# * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# * either express or implied.
+# *
+# * See the License for the specific language governing permissions and
+# * limitations under the License.
+# *
+# */
+################################################################################
+#
+# Include this file from Makefiles which build code for the ARM V8 AArch32 
+# architecture.
+#
+# It defines variables for compiling and linking using the Linaro ARM AArch32
+# cross-compiler to build a baremetal application using ARM Angel semihosting. 
+#
+# For example:
+#
+# +-----------------------------------------------------------------------+
+# |                                                                       | 
+# | CROSS_COMPILERS = $(IMPERAS_HOME)/lib/$(IMPERAS_ARCH)/CrossCompiler   |
+# |                                                                       |
+# | include $(CROSS_COMPILERS)/AARCH32.makefile.include                   |
+# |                                                                       |
+# | app.elf: main.o support.o                                             | 
+# |     $(IMPERAS_LINK)  -o $@  $^  $(IMPERAS_LDFLAGS)                    |
+# |                                                                       |
+# | main.o: main.c support.h                                              |
+# |     $(IMPERAS_CC) -mcpu=cortex-a57 -c -o $@  $<                       |
+# |                                                                       |
+# |                                                                       |
+# | # etc...                                                              |
+# |                                                                       |
+# +-----------------------------------------------------------------------+
+#
+# Note:
+#  - Imperas-specific CFLAGS and include paths are already included in the
+#    $(IMPERAS_CC) and $(IMPERAS_CXX) commands
+#  - The $(IMPERAS_LDFLAGS) variable must be specified at the end of a link
+#    command
+#
+
+ifndef IMPERAS_HOME
+  IMPERAS_ERROR := $(error "IMPERAS_HOME not defined")
+endif
+ifndef IMPERAS_ARCH
+  IMPERAS_ERROR := $(error "IMPERAS_ARCH not defined")
+endif
+
+include $(BAREMETAL_FOLDER)/Makefile.common.include
+  
+AARCH32_CROSSCOMPILER   = $(IMPERAS_HOME)/lib/$(IMPERAS_ARCH)/CrossCompiler/linaro-arm-none-eabi
+AARCH32_TARGETLIBRARIES = $(IMPERAS_HOME)/lib/$(IMPERAS_ARCH)/TargetLibraries
+AARCH32_IMPPUBLIC       = $(IMPERAS_HOME)/ImpPublic
+
+
+AARCH32_INCLUDES = \
+    -I$(AARCH32_IMPPUBLIC)/include/common \
+    -I$(AARCH32_IMPPUBLIC)/include/target/common \
+    -I$(AARCH32_IMPPUBLIC)/include/target/application \
+    -I$(AARCH32_TARGETLIBRARIES)/include/aarch32
+
+# Default Toolchain built for AARCH32
+AARCH32_CFLAGS   = 
+
+AARCH32_LDFLAGS0 = \
+    -L$(AARCH32_TARGETLIBRARIES)/aarch32-elf
+
+AARCH32_LDFLAGS  = -limperas
+
+AARCH32_LDFLAGS0 += -specs=$(AARCH32_CROSSCOMPILER)/arm-none-eabi/lib/aprofile-ve.specs
+
+AARCH32_GCC      = $(AARCH32_CROSSCOMPILER)/bin/arm-none-eabi-gcc
+AARCH32_CC       = $(AARCH32_CROSSCOMPILER)/bin/arm-none-eabi-gcc $(AARCH32_CFLAGS) $(AARCH32_INCLUDES)
+AARCH32_CXX      = $(AARCH32_CROSSCOMPILER)/bin/arm-none-eabi-g++ $(AARCH32_CFLAGS) $(AARCH32_INCLUDES)
+AARCH32_LINK     = $(AARCH32_CROSSCOMPILER)/bin/arm-none-eabi-gcc $(AARCH32_CFLAGS) $(AARCH32_INCLUDES) $(AARCH32_LDFLAGS0)
+AARCH32_LINKXX   = $(AARCH32_CROSSCOMPILER)/bin/arm-none-eabi-g++ $(AARCH32_CFLAGS) $(AARCH32_INCLUDES) $(AARCH32_LDFLAGS0)
+AARCH32_AS       = $(AARCH32_CROSSCOMPILER)/bin/arm-none-eabi-as  $(AARCH32_CFLAGS)
+AARCH32_LD       = $(AARCH32_CROSSCOMPILER)/bin/arm-none-eabi-ld
+AARCH32_AR       = $(AARCH32_CROSSCOMPILER)/bin/arm-none-eabi-ar
+AARCH32_NM       = $(AARCH32_CROSSCOMPILER)/bin/arm-none-eabi-nm
+AARCH32_RANLIB   = $(AARCH32_CROSSCOMPILER)/bin/arm-none-eabi-ranlib
+AARCH32_STRIP    = $(AARCH32_CROSSCOMPILER)/bin/arm-none-eabi-strip
+AARCH32_READELF  = $(AARCH32_CROSSCOMPILER)/bin/arm-none-eabi-readelf
+AARCH32_OBJDUMP  = $(AARCH32_CROSSCOMPILER)/bin/arm-none-eabi-objdump
+AARCH32_OBJCOPY  = $(AARCH32_CROSSCOMPILER)/bin/arm-none-eabi-objcopy
+# TODO: Need to get new gdb installed!!
+AARCH32_GDB      = $(IMPERAS_HOME)/lib/$(IMPERAS_ARCH)/gdb/arm-elf-gdb
+
+# Copy out to IMPERAS_
+IMPERAS_CROSSCOMPILER = $(AARCH32_CROSSCOMPILER)
+IMPERAS_TARGETLIBRARIES = $(AARCH32_TARGETLIBRARIES)
+IMPERAS_IMPPUBLIC = $(AARCH32_IMPPUBLIC)
+IMPERAS_INCLUDES = $(AARCH32_INCLUDES)
+IMPERAS_CFLAGS = $(AARCH32_CFLAGS)
+IMPERAS_LDFLAGS0 = $(AARCH32_LDFLAGS0)
+IMPERAS_LDFLAGS = $(AARCH32_LDFLAGS)
+IMPERAS_CC = $(AARCH32_CC)
+IMPERAS_CXX = $(AARCH32_CXX)
+IMPERAS_LINK = $(AARCH32_LINK)
+IMPERAS_LINKXX = $(AARCH32_LINKXX)
+IMPERAS_AS = $(AARCH32_AS)
+IMPERAS_LD = $(AARCH32_LD)
+IMPERAS_AR = $(AARCH32_AR)
+IMPERAS_NM = $(AARCH32_NM)
+IMPERAS_RANLIB = $(AARCH32_RANLIB)
+IMPERAS_STRIP = $(AARCH32_STRIP)
+IMPERAS_READELF = $(AARCH32_READELF)
+IMPERAS_OBJDUMP = $(AARCH32_OBJDUMP)
+IMPERAS_OBJCOPY = $(AARCH32_OBJCOPY)
+IMPERAS_GDB = $(AARCH32_GDB)

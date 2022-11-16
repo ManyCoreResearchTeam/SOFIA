@@ -1,0 +1,15 @@
+# -*- mode:python -*-
+#
+"""
+    Fault Injection Module to Gem5
+    Version 3.0
+    25/02/2017
+
+    Author: Felipe Rocha da Rosa - frdarosa.com
+"""
+#
+
+Import('*')
+
+SimObject('faultInjectionSystem.py')
+Source('faultInjectionSystem.cc')

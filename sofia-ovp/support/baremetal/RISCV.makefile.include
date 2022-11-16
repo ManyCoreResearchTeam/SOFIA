@@ -1,0 +1,122 @@
+################################################################################
+# RISCV.makefile.include
+################################################################################
+#/*
+# * Copyright (c) 2005-2019 Imperas Software Ltd., www.imperas.com
+# *
+# * Licensed under the Apache License, Version 2.0 (the "License");
+# * you may not use this file except in compliance with the License.
+# * You may obtain a copy of the License at
+# *
+# *   http://www.apache.org/licenses/LICENSE-2.0
+# *
+# * Unless required by applicable law or agreed to in writing, software
+# * distributed under the License is distributed on an "AS IS" BASIS,
+# * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# * either express or implied.
+# *
+# * See the License for the specific language governing permissions and
+# * limitations under the License.
+# *
+# */
+################################################################################
+#
+# Include this file from Makefiles which build code for the RISCV processor.
+# It defines variables for compiling and linking using the RISCV cross-compiler. 
+#
+# For example:
+#
+# +-----------------------------------------------------------------------+
+# |                                                                       | 
+# | CROSS_COMPILERS = $(IMPERAS_HOME)/lib/$(IMPERAS_ARCH)/CrossCompiler   |
+# |                                                                       |
+# | include $(CROSS_COMPILERS)/RISCVI.makefile.include                    |
+# |                                                                       |
+# | app.RISCVI.elf: main.RISCVI.o                                         | 
+# |     $(IMPERAS_LINK)  -o $@  $^  $(IMPERAS_LDFLAGS)                    |
+# |                                                                       |
+# | main.RISCVI.o: main.c support.h                                       |
+# |     $(IMPERAS_CC)  -c  -o $@  $<                                      |
+# |                                                                       |
+# |                                                                       |
+# | # etc...                                                              |
+# |                                                                       |
+# +-----------------------------------------------------------------------+
+#
+# Note:
+#  - Imperas-specific CFLAGS and include paths are already included in the
+#    $(IMPERAS_CC) and $(IMPERAS_CXX) commands
+#  - The $(IMPERAS_LDFLAGS) variable must be specified at the end of a link
+#    command
+#
+
+ifndef IMPERAS_HOME
+  IMPERAS_ERROR := $(error "IMPERAS_HOME not defined")
+endif
+ifndef IMPERAS_ARCH
+  IMPERAS_ERROR := $(error "IMPERAS_ARCH not defined")
+endif
+
+include $(BAREMETAL_FOLDER)/Makefile.common.include
+
+#
+# Prefix to make variable names unique
+#
+IMPERAS_RISCV_TGT?=RISCV
+
+#$(IMPERAS_RISCV_TGT)_CROSSCOMPILER   := $(IMPERAS_HOME)/lib/$(IMPERAS_ARCH)/CrossCompiler/riscv-none-embed
+$(IMPERAS_RISCV_TGT)_CROSSCOMPILER   := $(RISCV_TOOLCHAIN_BAREMETAL)
+ifeq ($(IMPERAS_UNAME),Windows)
+  $(IMPERAS_RISCV_TGT)_CROSSCOMPILER := $(shell getpath.exe $($(IMPERAS_RISCV_TGT)_CROSSCOMPILER))
+  export PATH := $($(IMPERAS_RISCV_TGT)_CROSSCOMPILER)/bin:$(PATH)
+endif
+$(IMPERAS_RISCV_TGT)_TARGETLIBRARIES := $(IMPERAS_HOME)/lib/$(IMPERAS_ARCH)/TargetLibraries
+$(IMPERAS_RISCV_TGT)_IMPPUBLIC       := $(IMPERAS_HOME)/ImpPublic
+
+$(IMPERAS_RISCV_TGT)_INCLUDES := \
+    -I$($(IMPERAS_RISCV_TGT)_IMPPUBLIC)/include/common \
+    -I$($(IMPERAS_RISCV_TGT)_IMPPUBLIC)/include/target/common \
+    -I$($(IMPERAS_RISCV_TGT)_IMPPUBLIC)/include/target/application
+
+$(IMPERAS_RISCV_TGT)_LDFLAGS0 := \
+    -L$($(IMPERAS_RISCV_TGT)_TARGETLIBRARIES)/$($(IMPERAS_RISCV_TGT)_TL)$($(IMPERAS_RISCV_TGT)_TL_SUBDIR) \
+
+$(IMPERAS_RISCV_TGT)_LDFLAGS  := -limperas -Wl,--start-group,-lg,-lgloss,--end-group
+
+$(IMPERAS_RISCV_TGT)_CC       := $($(IMPERAS_RISCV_TGT)_CROSSCOMPILER)/bin/$(RISCV_TOOLCHAIN_BAREMETAL_PREFIX)-gcc $($(IMPERAS_RISCV_TGT)_CFLAGS) $($(IMPERAS_RISCV_TGT)_INCLUDES)
+$(IMPERAS_RISCV_TGT)_CXX      := $($(IMPERAS_RISCV_TGT)_CROSSCOMPILER)/bin/$(RISCV_TOOLCHAIN_BAREMETAL_PREFIX)-g++ $($(IMPERAS_RISCV_TGT)_CFLAGS) $($(IMPERAS_RISCV_TGT)_INCLUDES)
+$(IMPERAS_RISCV_TGT)_LINK     := $($(IMPERAS_RISCV_TGT)_CROSSCOMPILER)/bin/$(RISCV_TOOLCHAIN_BAREMETAL_PREFIX)-gcc $($(IMPERAS_RISCV_TGT)_CFLAGS) $($(IMPERAS_RISCV_TGT)_INCLUDES) $($(IMPERAS_RISCV_TGT)_LDFLAGS0)
+$(IMPERAS_RISCV_TGT)_LINKXX   := $($(IMPERAS_RISCV_TGT)_CROSSCOMPILER)/bin/$(RISCV_TOOLCHAIN_BAREMETAL_PREFIX)-g++ $($(IMPERAS_RISCV_TGT)_CFLAGS) $($(IMPERAS_RISCV_TGT)_INCLUDES) $($(IMPERAS_RISCV_TGT)_LDFLAGS0)
+$(IMPERAS_RISCV_TGT)_AS       := $($(IMPERAS_RISCV_TGT)_CROSSCOMPILER)/bin/$(RISCV_TOOLCHAIN_BAREMETAL_PREFIX)-as  $($(IMPERAS_RISCV_TGT)_CFLAGS)
+$(IMPERAS_RISCV_TGT)_LD       := $($(IMPERAS_RISCV_TGT)_CROSSCOMPILER)/bin/$(RISCV_TOOLCHAIN_BAREMETAL_PREFIX)-ld
+$(IMPERAS_RISCV_TGT)_AR       := $($(IMPERAS_RISCV_TGT)_CROSSCOMPILER)/bin/$(RISCV_TOOLCHAIN_BAREMETAL_PREFIX)-ar
+$(IMPERAS_RISCV_TGT)_NM       := $($(IMPERAS_RISCV_TGT)_CROSSCOMPILER)/bin/$(RISCV_TOOLCHAIN_BAREMETAL_PREFIX)-nm
+$(IMPERAS_RISCV_TGT)_RANLIB   := $($(IMPERAS_RISCV_TGT)_CROSSCOMPILER)/bin/$(RISCV_TOOLCHAIN_BAREMETAL_PREFIX)-ranlib
+$(IMPERAS_RISCV_TGT)_STRIP    := $($(IMPERAS_RISCV_TGT)_CROSSCOMPILER)/bin/$(RISCV_TOOLCHAIN_BAREMETAL_PREFIX)-strip
+$(IMPERAS_RISCV_TGT)_READELF  := $($(IMPERAS_RISCV_TGT)_CROSSCOMPILER)/bin/$(RISCV_TOOLCHAIN_BAREMETAL_PREFIX)-readelf
+$(IMPERAS_RISCV_TGT)_OBJDUMP  := $($(IMPERAS_RISCV_TGT)_CROSSCOMPILER)/bin/$(RISCV_TOOLCHAIN_BAREMETAL_PREFIX)-objdump
+$(IMPERAS_RISCV_TGT)_OBJCOPY  := $($(IMPERAS_RISCV_TGT)_CROSSCOMPILER)/bin/$(RISCV_TOOLCHAIN_BAREMETAL_PREFIX)-objcopy
+$(IMPERAS_RISCV_TGT)_GDB      := $(IMPERAS_HOME)/lib/$(IMPERAS_ARCH)/gdb/$(RISCV_TOOLCHAIN_BAREMETAL_PREFIX)-gdb
+
+# Copy out to IMPERAS_
+IMPERAS_CROSSCOMPILER   = $($(IMPERAS_RISCV_TGT)_CROSSCOMPILER)
+IMPERAS_TARGETLIBRARIES = $($(IMPERAS_RISCV_TGT)_TARGETLIBRARIES)
+IMPERAS_IMPPUBLIC       = $($(IMPERAS_RISCV_TGT)_IMPPUBLIC)
+IMPERAS_INCLUDES        = $($(IMPERAS_RISCV_TGT)_INCLUDES)
+IMPERAS_CFLAGS          = $($(IMPERAS_RISCV_TGT)_CFLAGS)
+IMPERAS_LDFLAGS0        = $($(IMPERAS_RISCV_TGT)_LDFLAGS0)
+IMPERAS_LDFLAGS         = $($(IMPERAS_RISCV_TGT)_LDFLAGS)
+IMPERAS_CC              = $($(IMPERAS_RISCV_TGT)_CC)
+IMPERAS_CXX             = $($(IMPERAS_RISCV_TGT)_CXX)
+IMPERAS_LINK            = $($(IMPERAS_RISCV_TGT)_LINK)
+IMPERAS_LINKXX          = $($(IMPERAS_RISCV_TGT)_LINKXX)
+IMPERAS_AS              = $($(IMPERAS_RISCV_TGT)_AS)
+IMPERAS_LD              = $($(IMPERAS_RISCV_TGT)_LD)
+IMPERAS_AR              = $($(IMPERAS_RISCV_TGT)_AR)
+IMPERAS_NM              = $($(IMPERAS_RISCV_TGT)_NM)
+IMPERAS_RANLIB          = $($(IMPERAS_RISCV_TGT)_RANLIB)
+IMPERAS_STRIP           = $($(IMPERAS_RISCV_TGT)_STRIP)
+IMPERAS_READELF         = $($(IMPERAS_RISCV_TGT)_READELF)
+IMPERAS_OBJDUMP         = $($(IMPERAS_RISCV_TGT)_OBJDUMP)
+IMPERAS_OBJCOPY         = $($(IMPERAS_RISCV_TGT)_OBJCOPY)
+IMPERAS_GDB             = $($(IMPERAS_RISCV_TGT)_GDB)

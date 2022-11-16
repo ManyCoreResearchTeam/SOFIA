@@ -1,0 +1,419 @@
+#
+# Copyright (c) 2005-2020 Imperas Software Ltd., www.imperas.com
+#
+# The contents of this file are provided under the Software License
+# Agreement that you accepted before downloading this file.
+#
+# This source forms part of the Software and can be used for educational,
+# training, and demonstration purposes but cannot be used for derivative
+# works except in cases where the derivative works require OVP technology
+# to run.
+#
+# For open source models released under licenses that you can use for
+# derivative works, please visit www.OVPworld.org or www.imperas.com
+# for the location of the open source models.
+#
+
+set desc "
+This platform models the ARM Versatile Express development board with a CoreTile Express A9x4 (V2P-CA9) Daughterboard.
+See the ARM documents DUI0447G_v2m_p1_trm.pdf and DUI0448G_v2p_ca9_trm.pdf for details of the hardware being modeled. 
+Note this platform implements the motherboard's 'Legacy' memory map.
+
+The default processor is an ARM Cortex-A9MPx4, which may be changed."
+
+set limitations "
+This platform provides the peripherals required to boot and run Operating Systems such as Linux or Android.
+Some of the peripherals are register-only, non-functional models. See the individual peripheral model documentation for details.
+
+The TrustZone Protection Controller (TZPC) is modeled, the TrustZone Address Space Controller (TZASPC) is not modeled.
+
+CoreSight software debug and trace ports are not modeled.
+"
+
+# Setup variables for platform info
+set vendor  $::env(vendor)
+set library module
+set name    ArmVersatileExpress-CA9
+set version 1.0
+
+#
+# Start new platform creation
+#
+ihwnew -name $name -vendor $vendor -library $library -version $version -stoponctrlc  -purpose module -releasestatus ovp
+iadddocumentation -name Licensing   -text "Open Source Apache 2.0"
+iadddocumentation -name Description -text $desc
+iadddocumentation -name Limitations -text $limitations
+
+iadddocumentation -name Reference   -text "ARM Development Boards Versatile Express BaseBoard and ARM CoreTile Express A9x4"
+
+#
+# tzBus - including TrustZone Non-Secure bit (bit 40 of the address)
+#
+ihwaddbus -instancename tzBus -addresswidth 41
+
+#
+# pBus  - 32 bits of address - physical bus connected to devices and memory
+#
+ihwaddbus -instancename pBus  -addresswidth 32
+
+#
+# Bridge - Secure space of tzBus always mapped to pBus
+#
+ihwaddbridge -instancename secure
+ihwconnect   -instancename secure -busslaveport  sp -bus tzBus \
+             -loaddress 0x00000000 -hiaddress 0xffffffff
+ihwconnect   -instancename secure -busmasterport mp -bus pBus  \
+             -loaddress 0x00000000 -hiaddress 0xffffffff
+
+#
+# Processor
+#
+ihwaddprocessor -instancename cpu -type arm -vendor arm.ovpworld.org -version 1.0 \
+                -endian little \
+                -simulateexceptions \
+                -mips 448.0
+ihwconnect -bus tzBus -instancename cpu -busmasterport INSTRUCTION
+ihwconnect -bus tzBus -instancename cpu -busmasterport DATA
+ihwsetparameter -handle cpu -name variant            -value Cortex-A9MPx4   -type enum
+ihwsetparameter -handle cpu -name compatibility      -value ISA             -type enum
+ihwsetparameter -handle cpu -name UAL                -value 1               -type bool
+ihwsetparameter -handle cpu -name showHiddenRegs     -value 0               -type bool
+ihwsetparameter -handle cpu -name override_CBAR      -value 0x1e000000      -type uns32
+
+#
+# Connect the supported interrupt request nets 
+# to the processor's Shared Peripheral Interrupt ports
+#
+foreach i { 2 3 4 5 6 7 8 9 10 12 13 14 15 16 44 48 } {
+    ihwaddnet -instancename ir${i}
+    ihwconnect -net ir${i} -instancename cpu -netport SPI[expr $i + 32]
+}
+
+#
+# Utility proc to create a bridge from non-secure address space for the indicated range.
+# If an enable net name is specified then a dynamic bridge controlled by that
+# net is created, otherwise a static bridge is created.
+#
+proc mapNonSecure { instancename loaddress size {enable ""} } {
+
+    # Compute required addresses. (Non-Secure addresses have bit 40 set.)
+    set hiaddress   [expr {wide($loaddress) + $size - 1}]
+    set loaddressNS [expr {0x10000000000 + $loaddress}]
+    set hiaddressNS [expr {0x10000000000 + $hiaddress}]
+    
+    if {$enable eq ""} {
+    
+        # Add static bridge from non-secure address space to secure address space
+        ihwaddbridge -instancename $instancename
+        ihwconnect   -instancename $instancename -bus tzBus -busslaveport  "sp" -loaddress $loaddressNS -hiaddress $hiaddressNS
+        ihwconnect   -instancename $instancename -bus pBus  -busmasterport "mp" -loaddress $loaddress   -hiaddress $hiaddress
+        
+    } else {
+    
+        # Add a dynamic bridge from non-secure address space to secure address space controled by the enable net
+        ihwaddperipheral -instancename $instancename -type DynamicBridge -vendor ovpworld.org
+        ihwconnect       -instancename $instancename -bus tzBus -busslaveport  "sp"
+        ihwconnect       -instancename $instancename -bus pBus  -busmasterport "mp"
+        ihwaddnet        -instancename $enable
+        ihwconnect       -instancename $instancename -net $enable -netport enable
+        ihwsetparameter  -handle $instancename -name mpLoAddress -value $loaddress    -type uns64
+        ihwsetparameter  -handle $instancename -name spLoAddress -value $loaddressNS  -type uns64
+        ihwsetparameter  -handle $instancename -name portSize    -value $size         -type uns64
+        
+    }
+    
+}
+
+#####################################################################################
+# ARM Versatile Motherboard Express uATX (V2M-P1) Peripherals (Legacy Memory Map)
+#  0x10000000:0x10020000 are on the Motherboard 
+#  These peripherals are not TrustZone aware and thus are accessible from non-secure
+#####################################################################################
+ihwaddnet -instancename cardin
+ihwaddnet -instancename wprot
+
+# 0x10000000    0x10000fff  VexpressSysRegs System registers
+ihwaddperipheral -instancename sysRegs   -type VexpressSysRegs -vendor arm.ovpworld.org
+ihwconnect       -instancename sysRegs   -bus pBus  -busslaveport  bport1 -loaddress 0x10000000 -hiaddress 0x10000fff
+ihwconnect       -instancename sysRegs   -net cardin -netport cardin
+ihwconnect       -instancename sysRegs   -net wprot  -netport wprot
+ihwsetparameter    -handle       sysRegs   -name SYS_PROCID0  -value 0x0c000191   -type uns32
+mapNonSecure     sysRegsNS 0x10000000 0x1000
+
+# 0x10001000    0x10001fff      SP810 system control
+ihwaddperipheral -instancename sysCtrl -type SysCtrlSP810 -vendor arm.ovpworld.org
+ihwconnect       -instancename sysCtrl -bus pBus  -busslaveport  bport1 -loaddress 0x10001000 -hiaddress 0x10001fff
+mapNonSecure     sysCtrlNS 0x10001000 0x1000
+
+# 0x10002000    0x10002fff      serial bus PCI
+ihwaddperipheral -instancename sbpci0 -vendor ovpworld.org -type trap
+ihwconnect       -instancename sbpci0 -busslaveport bport1 -bus pBus
+ihwsetparameter  -handle       sbpci0 -name portAddress -value 0x10002000 -type uns32
+
+# 0x10004000    0x10004fff      PL041 audio
+ihwaddperipheral -instancename aac1 -type AaciPL041 -vendor arm.ovpworld.org
+ihwconnect       -instancename aac1 -bus pBus  -busslaveport  bport1 -loaddress 0x10004000 -hiaddress 0x10004fff
+mapNonSecure     aac1NS 0x10004000 0x1000
+
+
+# 0x10005000    0x10005fff  MmciPL181   pl181
+ihwaddperipheral -instancename mmc1  -type MmciPL181 -vendor arm.ovpworld.org
+ihwconnect       -instancename mmc1  -bus pBus  -busslaveport  bport1 -loaddress 0x10005000 -hiaddress 0x10005fff
+ihwconnect       -instancename mmc1  -net ir9  -netport irq0
+ihwconnect       -instancename mmc1  -net ir10 -netport irq1
+ihwconnect       -instancename mmc1  -net cardin -netport cardin
+ihwconnect       -instancename mmc1  -net wprot  -netport wprot
+mapNonSecure     mmc1NS 0x10005000 0x1000
+
+# 0x10006000    0x10006fff  KbPL050 pl050_keyboard
+ihwaddperipheral -instancename kb1 -type KbPL050 -vendor arm.ovpworld.org
+ihwconnect       -instancename kb1 -bus pBus  -busslaveport  bport1 -loaddress 0x10006000 -hiaddress 0x10006fff
+ihwconnect       -instancename kb1 -net ir12 -netport irq
+ihwsetparameter    -handle       kb1 -name isKeyboard  -value 1    -type bool
+ihwsetparameter    -handle       kb1 -name grabDisable -value 1    -type bool
+mapNonSecure     kb1NS 0x10006000 0x1000
+
+# 0x10007000    0x10007fff  KbPL050 pl050_mouse
+ihwaddperipheral -instancename ms1 -type KbPL050 -vendor arm.ovpworld.org
+ihwconnect       -instancename ms1 -bus pBus  -busslaveport  bport1 -loaddress 0x10007000 -hiaddress 0x10007fff
+ihwconnect       -instancename ms1 -net ir13 -netport irq
+ihwsetparameter    -handle       ms1 -name isMouse     -value 1    -type bool
+ihwsetparameter    -handle       ms1 -name grabDisable -value 1    -type bool
+mapNonSecure     ms1NS 0x10007000 0x1000
+
+
+# 0x10009000    0x10009fff  UartPL011   pl011
+ihwaddperipheral -instancename uart0  -type UartPL011 -vendor arm.ovpworld.org
+ihwsetparameter    -handle       uart0  -name variant  -value ARM               -type enum
+ihwsetparameter    -handle       uart0  -name outfile -value uart0.log          -type string
+ihwsetparameter    -handle       uart0  -name finishOnDisconnect -value 1       -type bool
+ihwconnect       -instancename uart0  -bus pBus  -busslaveport  bport1 -loaddress 0x10009000 -hiaddress 0x10009fff
+ihwconnect       -instancename uart0  -net ir5 -netport irq
+mapNonSecure     uart0NS 0x10009000 0x1000
+
+# 0x1000a000    0x1000afff  UartPL011   pl011
+ihwaddperipheral -instancename uart1  -type UartPL011 -vendor arm.ovpworld.org
+ihwsetparameter    -handle       uart1  -name variant  -value ARM        -type enum
+ihwsetparameter    -handle       uart1  -name outfile -value uart1.log   -type string
+ihwconnect       -instancename uart1  -bus pBus  -busslaveport  bport1 -loaddress 0x1000a000 -hiaddress 0x1000afff
+ihwconnect       -instancename uart1  -net ir6 -netport irq
+mapNonSecure     uart1NS 0x1000a000 0x1000
+
+# 0x1000b000    0x1000bfff  UartPL011   pl011
+ihwaddperipheral -instancename uart2  -type UartPL011 -vendor arm.ovpworld.org
+ihwsetparameter    -handle       uart2  -name variant  -value ARM       -type enum
+ihwconnect       -instancename uart2  -bus pBus  -busslaveport  bport1 -loaddress 0x1000b000 -hiaddress 0x1000bfff
+ihwconnect       -instancename uart2  -net ir7 -netport irq
+mapNonSecure     uart2NS 0x1000b000 0x1000
+
+# 0x1000c000    0x1000cfff  UartPL011   pl011
+ihwaddperipheral -instancename uart3  -type UartPL011 -vendor arm.ovpworld.org
+ihwsetparameter    -handle       uart3  -name variant  -value ARM       -type enum
+ihwconnect       -instancename uart3  -bus pBus  -busslaveport  bport1 -loaddress 0x1000c000 -hiaddress 0x1000cfff
+ihwconnect       -instancename uart3  -net ir8 -netport irq
+mapNonSecure     uart3NS 0x1000c000 0x1000
+
+# 0x1000f000    0x1000ffff      SP805 WDT
+ihwaddperipheral -instancename wdt1 -type WdtSP805 -vendor arm.ovpworld.org
+ihwconnect       -instancename wdt1 -bus pBus  -busslaveport  bport1 -loaddress 0x1000f000 -hiaddress 0x1000ffff
+mapNonSecure     wdt1NS 0x1000f000 0x1000
+
+# 0x10011000    0x10011fff  TimerSP804  sp804 Timer
+ihwaddperipheral -instancename timer01 -type TimerSP804 -vendor arm.ovpworld.org
+ihwconnect       -instancename timer01 -bus pBus  -busslaveport  bport1 -loaddress 0x10011000 -hiaddress 0x10011fff
+ihwconnect       -instancename timer01 -net ir2 -netport irq
+mapNonSecure     timer01NS 0x10011000 0x1000
+
+# 0x10012000    0x10012fff  TimerSP804  sp804 Timer
+ihwaddperipheral -instancename timer23 -type TimerSP804 -vendor arm.ovpworld.org
+ihwconnect       -instancename timer23 -bus pBus  -busslaveport  bport1 -loaddress 0x10012000 -hiaddress 0x10012fff
+ihwconnect       -instancename timer23 -net ir3 -netport irq
+mapNonSecure     timer02NS 0x10012000 0x1000
+
+# 0x10016000    0x10016fff      Serial Bus DVI
+ihwaddperipheral -instancename dvi1 -type SerBusDviRegs -vendor arm.ovpworld.org
+ihwconnect       -instancename dvi1 -bus pBus  -busslaveport  bport1 -loaddress 0x10016000 -hiaddress 0x10016fff
+mapNonSecure     dvi1NS 0x10016000 0x1000
+
+# 0x10017000    0x10017fff  RtcPL031    pl031 RTC
+ihwaddperipheral -instancename rtc1 -type RtcPL031 -vendor arm.ovpworld.org
+ihwconnect       -instancename rtc1 -bus pBus  -busslaveport  bport1 -loaddress 0x10017000 -hiaddress 0x10017fff
+ihwconnect       -instancename rtc1 -net ir4 -netport irq
+mapNonSecure     rtc1NS 0x10017000 0x1000
+
+# 0x1001a000    0x1001afff      Compact Flash
+ihwaddperipheral -instancename cf1 -type CompactFlashRegs -vendor arm.ovpworld.org
+ihwconnect       -instancename cf1 -bus pBus  -busslaveport  bport1 -loaddress 0x1001a000 -hiaddress 0x1001afff
+mapNonSecure     cf1NS 0x1001a000 0x1000
+
+# 0x1001f000    0x1001ffff  LcdPL110    PL111 CLCD (motherboard)
+# Use daughterboard CLCD instead, map as RAM
+#ihwaddmemory     -instancename lcd2  -type ram
+#ihwconnect       -bus pBus -instancename lcd2 -busslaveport sp1 -loaddress 0x1001f000 -hiaddress 0x1001ffff
+ihwaddperipheral -instancename clcd -type LcdPL110 -vendor arm.ovpworld.org
+ihwconnect       -instancename clcd -bus pBus  -busslaveport  bport1 -loaddress 0x1001f000 -hiaddress 0x1001ffff
+ihwconnect       -instancename clcd -bus pBus -busslaveport memory
+ihwconnect       -instancename clcd -net ir14 -netport irq
+ihwsetparameter    -handle       clcd -name resolution -value xga       -type enum
+# Turn the MotherBoard LCD off by default - not normally used
+ihwsetparameter    -handle       clcd -name noGraphics -value 1         -type bool
+mapNonSecure     lcd2NS 0x1001f000 0x1000
+
+
+#####################################################################################
+# ARM Versatile CoreTile Express A9x4 (V2P-CA9) Daughterboard Peripherals
+#  0x10020000:0x1fffffff are on the Daughterboard and are TrustZone aware
+#####################################################################################
+
+# 0x10020000    0x1002ffff  LcdPL110    PL111 CLCD (daughterboard)
+ihwaddperipheral -instancename lcd1 -type LcdPL110 -vendor arm.ovpworld.org
+ihwconnect       -instancename lcd1 -bus pBus  -busslaveport  bport1 -loaddress 0x10020000 -hiaddress 0x10020fff
+ihwconnect       -instancename lcd1 -bus pBus -busslaveport memory
+ihwsetparameter    -handle       lcd1 -name resolution -value xga      -type enum
+ihwconnect       -instancename lcd1  -net ir44 -netport irq
+mapNonSecure     lcd1NS 0x10020000 0x1000 tzpcdecprot1_4
+
+# 0x10060000    0x100dffff      AXI RAM
+# Not implemented - documentation incomplete?
+
+# 0x100e0000    0x100e0fff      PL341 Dynamic Memory Controller
+ihwaddperipheral -instancename dmc1 -type DMemCtrlPL341 -vendor arm.ovpworld.org
+ihwconnect       -instancename dmc1 -bus pBus  -busslaveport  bport1 -loaddress 0x100e0000 -hiaddress 0x100e0fff
+mapNonSecure     dmc1NS 0x100e0000 0x1000 tzpcdecprot0_0
+
+# 0x100e1000    0x100e1fff      PL354 Static Memory Controller
+ihwaddperipheral -instancename smc1 -type SMemCtrlPL354 -vendor arm.ovpworld.org
+ihwconnect       -instancename smc1 -bus pBus  -busslaveport  bport1 -loaddress 0x100e1000 -hiaddress 0x100e1fff
+mapNonSecure     smc1NS 0x100e1000 0x1000 tzpcdecprot0_1
+
+# 0x100e2000    0x100e2fff      System Configuration Controller - Dummy
+ihwaddperipheral -instancename scc1 -vendor ovpworld.org -type trap
+ihwconnect       -instancename scc1 -busslaveport bport1 -bus pBus
+ihwsetparameter  -handle       scc1 -name portAddress -value 0x100e2000 -type uns32
+mapNonSecure     scc1NS 0x100e2000 0x1000 tzpcdecprot0_2
+
+# 0x100e4000    0x100e4fff  TimerSP804  sp804
+ihwaddperipheral -instancename timer45 -type TimerSP804 -vendor arm.ovpworld.org
+ihwconnect       -instancename timer45 -bus pBus  -busslaveport  bport1 -loaddress 0x100e4000 -hiaddress 0x100e4fff
+mapNonSecure     timer45NS 0x100e4000 0x1000 tzpcdecprot0_4
+ihwconnect       -instancename timer45 -net ir48 -netport irq
+
+# 0x100e5000    0x100e5fff      SP805 Watchdog module
+ihwaddperipheral -instancename wdt2 -type WdtSP805 -vendor arm.ovpworld.org
+ihwconnect       -instancename wdt2 -bus pBus  -busslaveport  bport1 -loaddress 0x100e5000 -hiaddress 0x100e5fff
+mapNonSecure     wdt2NS 0x100e5000 0x1000 tzpcdecprot0_5
+
+# 0x100e6000    0x100e6fff      BP147 TrustZone Protection Controller (Never accessible from non-secure)
+ihwaddperipheral -instancename tzpc -type TzpcBP147 -vendor arm.ovpworld.org
+ihwconnect       -instancename tzpc -bus pBus -busslaveport bport1 -loaddress 0x100e6000 -hiaddress 0x100e6fff
+# Connect nets only for TZPCDECPROT outputs that are used
+ihwconnect -instancename tzpc -net tzpcdecprot0_0  -netport TZPCDECPROT0_0
+ihwconnect -instancename tzpc -net tzpcdecprot0_1  -netport TZPCDECPROT0_1
+ihwconnect -instancename tzpc -net tzpcdecprot0_2  -netport TZPCDECPROT0_2
+ihwconnect -instancename tzpc -net tzpcdecprot0_4  -netport TZPCDECPROT0_4
+ihwconnect -instancename tzpc -net tzpcdecprot0_5  -netport TZPCDECPROT0_5
+ihwconnect -instancename tzpc -net tzpcdecprot0_9  -netport TZPCDECPROT0_9
+ihwconnect -instancename tzpc -net tzpcdecprot0_10 -netport TZPCDECPROT0_10
+ihwconnect -instancename tzpc -net tzpcdecprot1_4  -netport TZPCDECPROT1_4
+
+# 0x100e8000    0x100e8fff  GPIO  - dummy - not documented
+ihwaddperipheral -instancename gpio0 -vendor ovpworld.org -type trap
+ihwconnect       -instancename gpio0 -busslaveport bport1 -bus pBus
+ihwsetparameter  -handle       gpio0 -name portAddress -value 0x100e8000 -type uns32
+
+# 0x100e9000    0x100e9fff      PL301 'Fast' AXI matrix - Dummy
+ihwaddperipheral -instancename faxi1 -vendor ovpworld.org -type trap
+ihwconnect       -instancename faxi1 -busslaveport bport1 -bus pBus
+ihwsetparameter  -handle       faxi1 -name portAddress -value 0x100e9000 -type uns32
+mapNonSecure     faxi1NS 0x100e9000 0x1000 tzpcdecprot0_9
+
+# 0x100ea000    0x100eafff      PL301 'Slow' AXI matrix - Dummy
+ihwaddperipheral -instancename saxi1 -vendor ovpworld.org -type trap
+ihwconnect       -instancename saxi1 -busslaveport bport1 -bus pBus
+ihwsetparameter  -handle       saxi1 -name portAddress -value 0x100ea000 -type uns32
+mapNonSecure     saxi1NS 0x100ea000 0x1000 tzpcdecprot0_10
+
+# 0x100ec000    0x100ecfff      TrustZone Address Space Controller
+# Not implemented
+
+# 0x10200000    0x103fffff      CoreSight debug APB
+# Not implemented
+
+# 0x1e00a000    0x1e00afff      PL310 L2 Cache Controller
+ihwaddperipheral -instancename l2regs -type L2CachePL310 -vendor arm.ovpworld.org
+ihwconnect       -instancename l2regs -bus pBus  -busslaveport  bport1 -loaddress 0x1e00a000 -hiaddress 0x1e00afff
+mapNonSecure     l2regsNS 0x1e00a000 0x1000
+
+#####################################################################################
+# Daughterboard memory
+#####################################################################################
+
+# 0x60000000    0x7fffffff  RAM DDR2 Lower
+# 0x80000000    0x83ffffff  RAM Remap
+# 0x84000000    0x9fffffff  RAM DDR2 Upper
+
+ihwaddbus -instancename ddr2bus -addresswidth 32
+
+ihwaddmemory -instancename ddr2ram  -type ram
+ihwconnect -bus ddr2bus -instancename ddr2ram -busslaveport sp1 -loaddress 0 -hiaddress 0x3fffffff
+
+ihwaddbridge -instancename ddr2RamBridge
+ihwconnect -bus ddr2bus -instancename ddr2RamBridge -busmasterport mp -loaddress 0          -hiaddress 0x3fffffff
+ihwconnect -bus pBus    -instancename ddr2RamBridge -busslaveport  sp -loaddress 0x60000000 -hiaddress 0x9fffffff
+mapNonSecure ddr2ramNS 0x60000000 0x40000000
+
+# 0x00000000    0x03ffffff  RAM DDR2 Remapped
+ihwaddbridge -instancename ddr2RemapBridge
+ihwconnect -bus pBus    -instancename ddr2RemapBridge -busslaveport sp1 -loaddress 0x00000000 -hiaddress 0x03ffffff
+ihwconnect -bus ddr2bus -instancename ddr2RemapBridge -busmasterport mp -loaddress 0x20000000 -hiaddress 0x23ffffff
+mapNonSecure ddr2RemapBridgeNS 0x00000000 0x04000000
+
+#####################################################################################
+# Motherboard Memory and Peripherals
+#####################################################################################
+
+# 0x40000000    0x43ffffff      CS0: NOR0 Intel P30 NOR Flash
+ihwaddperipheral -instancename nor0  -type NorFlash48F4400  -vendor intel.ovpworld.org
+ihwconnect -bus pBus -instancename nor0 -busslaveport flash -loaddress 0x40000000 -hiaddress 0x43ffffff
+mapNonSecure nor0NS 0x40000000 0x04000000
+
+# 0x44000000    0x47ffffff      CS1: NOR1  Intel P30 NOR Flash
+ihwaddperipheral -instancename nor1  -type NorFlash48F4400 -vendor intel.ovpworld.org
+ihwconnect -bus pBus -instancename nor1 -busslaveport flash -loaddress 0x44000000 -hiaddress 0x47ffffff
+mapNonSecure nor1NS 0x44000000 0x04000000
+
+# 0x48000000    0x4bffffff  RAM CS2: SRAM
+ihwaddmemory -instancename sram1  -type ram
+ihwconnect -bus pBus -instancename sram1 -busslaveport sp1 -loaddress 0x48000000 -hiaddress 0x4bffffff
+mapNonSecure sram1NS 0x48000000 0x04000000
+
+# 0x4c000000    0x4c7fffff  RAM Video RAM
+ihwaddmemory -instancename vram1  -type ram
+ihwconnect -bus pBus -instancename vram1 -busslaveport sp1 -loaddress 0x4c000000 -hiaddress 0x4c7fffff
+mapNonSecure vram1NS 0x4c000000 0x00800000
+
+# 0x4e000000    0x4effffff      LAN9118 Ethernet
+ihwaddperipheral -instancename eth0 -vendor smsc.ovpworld.org -type LAN9118
+ihwconnect       -instancename eth0 -bus pBus -busslaveport  bport1 -loaddress 0x4e000000 -hiaddress 0x4e000fff
+ihwconnect       -instancename eth0 -net ir15 -netport irq
+mapNonSecure eth0NS 0x4e000000 0x1000
+
+# 0x4f000000    0x4fffffff      ISP1761 USB
+ihwaddperipheral -instancename usb0 -vendor philips.ovpworld.org -type ISP1761
+ihwconnect       -instancename usb0 -bus pBus  -busslaveport  bport1 -loaddress 0x4f000000 -hiaddress 0x4f00ffff
+ihwconnect       -instancename usb0 -net ir16 -netport hc_irq
+mapNonSecure usb0NS 0x4f000000 0x10000
+
+
+
+#####################################################################################
+# OVPworld Linux BootLoader
+#####################################################################################
+
+ihwaddperipheral -instancename smartLoader  -type SmartLoaderArmLinux -vendor arm.ovpworld.org -version 1.0
+ihwconnect       -instancename smartLoader  -bus pBus -busmasterport mport -loaddress 0 -hiaddress 0xffffffff
+ihwsetparameter    -handle       smartLoader  -name command -value "mem=1024M raid=noautodetect console=ttyAMA0,38400n8 vmalloc=256MB devtmpfs.mount=0"  -type string
+ihwsetparameter    -handle       smartLoader  -name physicalbase -value 0x60000000   -type uns32
+ihwsetparameter    -handle       smartLoader  -name memsize -value 0x40000000        -type uns32
+ihwsetparameter    -handle       smartLoader  -name boardid -value 0x8e0             -type uns32
+

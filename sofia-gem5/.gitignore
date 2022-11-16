@@ -1,0 +1,15 @@
+build/
+nohup*
+*.elf
+*.o
+setparams
+*.pyc
+*swp
+*swo
+*~
+*FIM_log*
+workspace*
+Results*
+kernelCheckpoint*
+a.out
+parsetab.py

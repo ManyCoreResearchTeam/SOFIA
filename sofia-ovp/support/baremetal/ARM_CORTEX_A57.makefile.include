@@ -1,0 +1,4 @@
+
+
+AARCH64_CFLAGS=-mcpu=cortex-a57 -march=armv8-a
+include $(BAREMETAL_FOLDER)/AARCH64.makefile.include

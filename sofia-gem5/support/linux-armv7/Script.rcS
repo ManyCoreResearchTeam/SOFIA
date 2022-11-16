@@ -1,0 +1,27 @@
+#!/bin/sh
+
+#Load path
+export LD_LIBRARY_PATH="usr/lib"
+export PATH=$PATH:"/mpich-3.2/bin"
+
+#Debug flag
+#~ set -x
+
+APPLICATION=
+APP_PATH=
+
+#~ cat /proc/cpuinfo 
+cd $APP_PATH
+#Thread affinity see here /etc/rc.d/rc.local
+
+#OpenMP thread AFFINITY
+CPUCOUNT=$(grep -c ^processor /proc/cpuinfo)
+export GOMP_CPU_AFFINITY=$(seq 0 $((CPUCOUNT-1)))
+export OMP_PROC_BIND=TRUE
+
+#Call the application with the arguments
+echo $APPLICATION | sh
+
+echo "The application finished without call the FIM, probably an unexpectedly termation"
+#Exit the application in case of seg fault
+/root/m5 fail 0 1

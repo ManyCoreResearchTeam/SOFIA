@@ -1,0 +1,164 @@
+#
+# Copyright (c) 2005-2016 Imperas Software Ltd., www.imperas.com
+#
+# The contents of this file are provided under the Software License
+# Agreement that you accepted before downloading this file.
+#
+# This source forms part of the Software and can be used for educational,
+# training, and demonstration purposes but cannot be used for derivative
+# works except in cases where the derivative works require OVP technology
+# to run.
+#
+# For open source models released under licenses that you can use for
+# derivative works, please visit www.OVPworld.org or www.imperas.com
+# for the location of the open source models.
+#
+
+set desc "
+This platform implements the ARM v8-A Foundation Model v1 memory map described in ARM DUI 0677C.
+
+The default processor is an ARM Cortex-A57MPx4.
+
+The processor mips rate is modeled as 500MIPS by default. 
+
+The timerScaleFactor and processor MIPS rate default to values to model a 100MHz timer and CNTFREQ is automatically set accordingly. 
+This matches the clock frequency in the default Linux device tree. These should be adjusted if that is changed.
+"
+
+set limitations "
+This platform provides the peripherals required to boot and run Operating Systems such as Linux.
+Some of the peripherals are register-only, non-functional models. See the individual peripheral model documentation for details.
+"
+
+# Setup variables for platform info 
+set vendor  $::env(vendor)
+set library module
+set name    ARMv8-A-FMv1
+set version 1.0
+
+if {([info exists mode]) && ("$mode" == "TLM")} {
+    set postFix ""
+} else {
+    set postFix "ULL"
+}
+
+#
+# Start new platform creation 
+#
+ihwnew -name $name -vendor $vendor -library $library -version $version -stoponctrlc -purpose module -releasestatus ovp
+iadddocumentation -name Licensing   -text "Open Source Apache 2.0"
+iadddocumentation -name Description -text $desc
+iadddocumentation -name Limitations -text $limitations
+iadddocumentation -name Reference   -text "ARM DUI 0677C"
+
+#
+# pBus  - 40 bits of address
+#
+ihwaddbus -instancename pBus  -addresswidth 40
+
+#
+# Processor
+#
+ihwaddprocessor -instancename cpu -type arm -vendor arm.ovpworld.org -version 1.0 \
+                -endian little \
+                -simulateexceptions \
+                -mips 500
+ihwconnect    -instancename cpu -bus pBus -busmasterport INSTRUCTION
+ihwconnect    -instancename cpu -bus pBus -busmasterport DATA
+ihwsetparameter -handle       cpu -name variant                     -value Cortex-A57MPx4 -type enum
+ihwsetparameter -handle       cpu -name compatibility               -value ISA        -type enum
+ihwsetparameter -handle       cpu -name UAL                         -value 1          -type boolean
+ihwsetparameter -handle       cpu -name override_CBAR               -value 0x2c000000 -type Uns32
+ihwsetparameter -handle       cpu -name override_GICD_TYPER_ITLines -value 4          -type Uns32
+
+# override_timerScaleFactor:
+#   By default use value of 5 to set the processors Generic Timers to 100 MHz (500MIPS/5) 
+#   which is what is specified in the default device tree,
+#   Kernel is not checking CNTFRQ register value so must match what is in device tree
+ihwsetparameter -handle       cpu -name override_timerScaleFactor   -value 5 -type Uns32
+
+#
+# Connect the supported interrupt request nets 
+# to the processor's Shared Peripheral Interrupt ports
+#
+# unused  { 2 3 4         9 10 12 13 14       } {
+foreach i {       5 6 7 8               15 42 } {
+    ihwaddnet -instancename ir${i}
+    ihwconnect -net ir${i} -instancename cpu -netport SPI[expr $i + 32]
+}
+
+# 0x00000000    0x03ffffff      RAM
+ihwaddmemory -instancename RAM0       -type ram
+ihwconnect   -instancename RAM0       -bus pBus -busslaveport  sp1 -loaddress 0x00000000 -hiaddress 0x03ffffff
+
+# 0x04000000    0x0403ffff      RAM
+ihwaddmemory -instancename RAM1       -type ram
+ihwconnect   -instancename RAM1       -bus pBus -busslaveport  sp1 -loaddress 0x04000000 -hiaddress 0x0403ffff
+
+# 0x06000000    0x07ffffff      RAM
+ihwaddmemory -instancename RAM2       -type ram
+ihwconnect   -instancename RAM2       -bus pBus -busslaveport  sp1 -loaddress 0x06000000 -hiaddress 0x07ffffff
+
+# 0x1a000000    0x1a000fff      Ethernet, SMSC 91C111
+ihwaddperipheral -instancename eth0 -type LAN91C111 -vendor smsc.ovpworld.org
+ihwconnect       -instancename eth0 -bus  pBus -busslaveport  bport1 -loaddress 0x1a000000 -hiaddress 0x1a000fff
+ihwconnect       -instancename eth0 -net ir15  -netport irq
+
+# 0x1c010000    0x1c010fff      System registers
+ihwaddperipheral -instancename sysRegs  -type VexpressSysRegs -vendor arm.ovpworld.org
+ihwconnect       -instancename sysRegs  -bus pBus  -busslaveport  bport1 -loaddress 0x1c010000 -hiaddress 0x1c010fff
+#ihwconnect       -instancename sysRegs  -net wprot  -netport wprot
+#ihwconnect       -instancename sysRegs  -net cardin -netport cardin
+ihwsetparameter    -handle       sysRegs  -name SYS_PROCID0  -value 0x14000237 -type Uns32
+
+# 0x1c090000    0x1c090fff      UartPL011   pl011
+ihwaddperipheral -instancename uart0  -type UartPL011 -vendor arm.ovpworld.org
+ihwconnect       -instancename uart0  -bus pBus -busslaveport  bport1 -loaddress 0x1c090000 -hiaddress 0x1c090fff
+ihwconnect       -instancename uart0  -net ir5  -netport irq
+ihwsetparameter    -handle       uart0  -name variant  -value ARM            -type string
+ihwsetparameter    -handle       uart0  -name outfile -value uart0.log       -type string
+ihwsetparameter    -handle       uart0  -name finishOnDisconnect -value 1    -type boolean
+
+# 0x1c0a0000    0x1c0a0fff      UartPL011   pl011
+ihwaddperipheral -instancename uart1  -type UartPL011 -vendor arm.ovpworld.org
+ihwconnect       -instancename uart1  -bus pBus -busslaveport  bport1 -loaddress 0x1c0a0000 -hiaddress 0x1c0a0fff
+ihwconnect       -instancename uart1  -net ir6  -netport irq
+ihwsetparameter    -handle       uart1  -name variant  -value ARM            -type string
+ihwsetparameter    -handle       uart1  -name outfile -value uart1.log       -type string
+ihwsetparameter    -handle       uart1  -name finishOnDisconnect -value 1    -type boolean 
+
+# 0x1c0b0000    0x1c0b0fff      UartPL011   pl011
+ihwaddperipheral -instancename uart2  -type UartPL011 -vendor arm.ovpworld.org
+ihwconnect       -instancename uart2  -bus pBus -busslaveport  bport1 -loaddress 0x1c0b0000 -hiaddress 0x1c0b0fff
+ihwconnect       -instancename uart2  -net ir7  -netport irq
+ihwsetparameter    -handle       uart2  -name variant  -value ARM         -type string
+
+# 0x1c0c0000    0x1c0c0fff      UartPL011   pl011
+ihwaddperipheral -instancename uart3  -type UartPL011 -vendor arm.ovpworld.org
+ihwconnect       -instancename uart3  -bus pBus -busslaveport  bport1 -loaddress 0x1c0c0000 -hiaddress 0x1c0c0fff
+ihwconnect       -instancename uart3  -net ir8  -netport irq
+ihwsetparameter    -handle       uart3  -name variant  -value ARM         -type string
+
+# 0x1c130000    0x1c1301ff      Virtio block device 
+ihwaddperipheral -instancename vbd0 -type VirtioBlkMMIO -vendor ovpworld.org 
+ihwconnect       -instancename vbd0 -bus pBus -busmasterport dma    -loaddress 0 -hiaddress 0xffffffffff${postFix}
+ihwconnect       -instancename vbd0 -bus pBus -busslaveport  bport1 -loaddress 0x1c130000 -hiaddress 0x1c1301ff
+ihwconnect       -instancename vbd0 -net ir42  -netport Interrupt
+
+# 0x00_80000000    0x00_ffffffff  DRAM 0GB-2GB
+ihwaddmemory -instancename DRAM0   -type ram
+ihwconnect   -instancename DRAM0   -bus pBus -busslaveport  sp1 -loaddress 0x0080000000 -hiaddress 0x00ffffffff
+
+# 0x08_80000000    0x09_ffffffff  DRAM 2GB-8GB
+ihwaddmemory -instancename DRAM1   -type ram
+ihwconnect   -instancename DRAM1   -bus pBus -busslaveport  sp1 -loaddress 0x0880000000${postFix} -hiaddress 0x09ffffffff${postFix}
+
+
+#####################################################################################
+# OVPworld ARM V8 Linux BootLoader
+#####################################################################################
+
+ihwaddperipheral -instancename smartLoader  -type SmartLoaderArm64Linux  -vendor arm.ovpworld.org
+ihwconnect       -instancename smartLoader  -bus pBus -busmasterport mport -loaddress 0 -hiaddress 0xffffffff
+ihwsetparameter    -handle       smartLoader  -name physicalbase -type Uns64  -value 0x80000000
+ihwsetparameter    -handle       smartLoader  -name command      -type string -value "console=ttyAMA0 earlyprintk=pl011,0x1c090000 nokaslr"

@@ -1,0 +1,16 @@
+
+IMPERAS_ARM_TGT=ARM_CORTEX_M33F
+
+# Default to NEWLIB, set to ANGEL for ARM Angel semihosting, blank for no semihost
+ARM_CORTEX_M33F_SEMIHOST?=NEWLIB
+
+ARM_CORTEX_M33F_CFLAGS=-mcpu=cortex-m33 -march=armv8-m.main+dsp+fp -mfloat-abi=hard 
+#-mfpu=fpv5-sp-d16
+
+include $(BAREMETAL_FOLDER)/ARMV8-M.makefile.include
+
+SOFTWARE_DIR = $(BAREMETAL_FOLDER)/software/M33
+
+CFLAGS += -I$(SOFTWARE_DIR)/Include -I$(SOFTWARE_DIR)/Core/Include -I$(SOFTWARE_DIR)/DSP/Include -DARMCM33_DSP_FP
+IMPERAS_LDFLAGS += -T $(SOFTWARE_DIR)/Source/GCC/gcc_arm.ld -L $(SOFTWARE_DIR)/Source/GCC \
+	$(SOFTWARE_DIR)/Source/startup_ARMCM33.c $(SOFTWARE_DIR)/Source/system_ARMCM33.c

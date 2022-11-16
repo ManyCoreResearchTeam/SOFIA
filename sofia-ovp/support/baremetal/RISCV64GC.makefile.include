@@ -1,0 +1,10 @@
+
+IMPERAS_RISCV_TGT=RISCV64GC
+
+RISCV64GC_CFLAGS    = -mabi=lp64d -march=rv64gc
+
+# Target Library
+RISCV64GC_TL        = riscv64d-elf
+RISCV64GC_TL_SUBDIR = 
+
+include $(BAREMETAL_FOLDER)/RISCV.makefile.include
