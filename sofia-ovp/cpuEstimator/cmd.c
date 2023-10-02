@@ -31,9 +31,22 @@ typedef struct supportedProcessorsS {
 } supportedProcessorsT, *supportedProcessorsP;
 
 static supportedProcessorsT procList[] = {
+    { "armm",  "Cortex-M0", armCEEnable  },
+    { "armm",  "Cortex-M3", armCEEnable  },
+    { "armm",  "Cortex-M4", armCEEnable  },
+    { "armm",  "Cortex-M4F", armCEEnable  },
+    { "armm",  "Cortex-M7", armCEEnable  },
+    { "armm",  "Cortex-M7F", armCEEnable  },
+    { "arm",  "Cortex-A53MPx1", armCEEnable  },
+    { "arm",  "Cortex-A57MPx1", armCEEnable  },
     { "arm",  "Cortex-A72MPx1", armCEEnable  },
     { "arm",  "Cortex-A72MPx2", armCEEnable  },
-    { 0, 0, 0}
+    { "arm",  "Cortex-A72MPx4", armCEEnable  },
+    { "arm",  "Cortex-A9MPx1",    armCEEnable  },
+    { "arm",  "Cortex-A5MPx1",    armCEEnable  },
+    { "arm",  "Cortex-A7MPx1",    armCEEnable  },
+//    { "riscv", "RISCV32I", rh850CEEnable },
+    { 0, 0, 0 }
 };
 
 //

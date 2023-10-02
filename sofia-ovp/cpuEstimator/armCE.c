@@ -31,6 +31,7 @@
 
 // local includes
 #include "svc.h"
+#include "iattr.h"
 
 // Defines
 #define SIZEOFINBITS(_A) sizeof(_A) * 8
@@ -84,41 +85,101 @@ typedef struct instructionTableS {
     const char *mnemonic;
 } instructionTableT, *instructionTableP, **instructionTablePP;
 
+typedef struct iattrInfoS {
+    Uns64           thisPC;
+    char           *rawDisass;
+    char           *instrName;
+    octiaAttrP      ia;
+    iattrRegListT   srcRegs;
+    iattrRegListT   dstRegs;
+} iattrInfo;
+
+typedef struct iattrCacheRootS {
+    optProcessorP processor; // Processor
+    optModeP      mode;      // Processor mode
+    void         *treeRoot;  // Root of tree with cached octiaAttr data
+} iattrCacheRootT, *iattrCacheRootP, **iattrCacheRootPP;
+
+typedef struct iattrCacheEntryS {
+    Uns32      opCodeSize;  // Size of opcode (only 16 and 32 bits supported)
+    Uns32      opCode;      // Opcode value
+    octiaAttrP attrs;       // pointer to octiaAttr structure for this opcode/mode
+} iattrCacheEntryT, *iattrCacheEntryP, **iattrCacheEntryPP;
+
+
+Bool iattrIsBranch(iattrInfoP attrs) {
+	octiaInstructionClass instrClassesE = ocliaGetInstructionClass(attrs->ia);
+
+	return ((instrClassesE & IC_branch) != 0);
+}	
+
+	
 static instructionTableT instructionClasses[] = {
 
     // Conditional Branch
-    {IC_branch, "b.eq"},
-    {IC_branch, "b.ne"},
-    {IC_branch, "b.cs"},
-    {IC_branch, "b.hs"},
-    {IC_branch, "b.cc"},
-    {IC_branch, "b.lo"},
-    {IC_branch, "b.mi"},
-    {IC_branch, "b.pl"},
-    {IC_branch, "b.vs"},
-    {IC_branch, "b.vc"},
-    {IC_branch, "b.hi"},
-    {IC_branch, "b.ls"},
-    {IC_branch, "b.ge"},
-    {IC_branch, "b.lt"},
-    {IC_branch, "b.gt"},
-    {IC_branch, "b.le"},
-    {IC_branch, "b.al"},
-    {IC_branch, "b.nv"},
+    
+    {IC_branch, "b"},
+    {IC_branch, "bl"},
+    {IC_branch, "ble"},
+    {IC_branch, "bx"},
+	
+    {IC_branch, "eq"},
+    {IC_branch, "ne"},
+    {IC_branch, "cs"},
+    {IC_branch, "hs"},
+    {IC_branch, "cc"},
+    {IC_branch, "lo"},
+    {IC_branch, "mi"},
+    {IC_branch, "pl"},
+    {IC_branch, "vs"},
+    {IC_branch, "vc"},
+    {IC_branch, "hi"},
+    {IC_branch, "ls"},
+    {IC_branch, "ge"},
+    {IC_branch, "lt"},
+    {IC_branch, "gt"},
+    {IC_branch, "le"},
+    {IC_branch, "al"},
+    {IC_branch, "nv"},
     {IC_branch, "cbnz"},
     {IC_branch, "cbz"},
     {IC_branch, "tbnz"},
     {IC_branch, "tbz"},
-
-    // Unconditional Branch
-    {IC_branch, "b"},
-    {IC_branch, "bl"},
-    {IC_branch, "blr"},
-    {IC_branch, "br"},
+    {IC_branch, "svc"},
+    {IC_branch, "smc"},
+    {IC_branch, "bkpt"},
+    {IC_branch, "cps"},
+    {IC_branch, "rfe"},
+    {IC_branch, "setend"},
+    {IC_branch, "msrcpsr"},
+    {IC_branch, "wfe"},
+    {IC_branch, "wfi"},
+    {IC_branch, "sev"},
+    {IC_branch, "clrex"},
+    {IC_branch, "dsb"},
+    {IC_branch, "mrc"},
+    {IC_branch, "mcr"},
+    {IC_branch, "msrspsr"},
     {IC_branch, "ret"},
+    {IC_branch, "br"},
+    {IC_branch, "blr"},
+    {IC_branch, "blx"},
+    {IC_branch, "it"},
+    {IC_branch, "ite"},
+    {IC_branch, "itet"},    
+    {IC_branch, "itee"},
+    {IC_branch, "itete"},
+    {IC_branch, "itett"},
+    {IC_branch, "iteee"},
+    {IC_branch, "itt"},
+    {IC_branch, "ittt"},
+    {IC_branch, "ittte"},
+    {IC_branch, "itttt"},
 
+  
     // Memory load
-
+ 
+    {IC_memoryLoad, "pop"},
     {IC_memoryLoad, "ldr"},
     {IC_memoryLoad, "ldrb"},
     {IC_memoryLoad, "ldrsb"},
@@ -173,10 +234,30 @@ static instructionTableT instructionClasses[] = {
     {IC_memoryStore, "stlxrb"},
     {IC_memoryStore, "stlxrh"},
     {IC_memoryStore, "stlxp"},
+    {IC_memoryLoad, "ldm"},
+    {IC_memoryLoad, "ldrd"},
+    {IC_memoryStore, "stm"},
+    {IC_memoryStore, "strd"},
+    {IC_memoryStore, "srs"},
     {IC_memory, "prfm"},
     {IC_memory, "prfum"},
+    {IC_memory, "pldw"},
+    {IC_memory, "pld"},
+    {IC_memoryLoad, "ldmdb"},
+    {IC_memoryLoad, "ldmib"},
+    {IC_memoryLoad, "ldrex"},
+    {IC_memoryStore, "push"},
+    {IC_memoryStore, "strex"},
+    {IC_memoryStore, "strexeq"},
+    {IC_memoryStore, "stmdb"},
+    {IC_memoryStore, "stmib"},
+    {IC_memoryLoad, "ldrt"},
+    {IC_memoryStore, "strbnet"},
+    
+
 
     // Data Processing
+    
     {IC_arithLogic, "add"},
     {IC_arithLogic, "adds"},
     {IC_arithLogic, "sub"},
@@ -184,9 +265,11 @@ static instructionTableT instructionClasses[] = {
     {IC_arithLogic, "cmp"},
     {IC_arithLogic, "cmn"},
     {IC_arithLogicMov, "mov"},
+    {IC_arithLogicMov, "mvns"},
     {IC_arithLogic, "and"},
     {IC_arithLogic, "ands"},
     {IC_arithLogic, "eor"},
+    {IC_arithLogic, "eors"},
     {IC_arithLogic, "orr"},
     {IC_arithLogicMov, "movi"},
     {IC_arithLogic, "tst"},
@@ -250,8 +333,85 @@ static instructionTableT instructionClasses[] = {
     {IC_arithLogic, "sxtw"},
     {IC_arithLogic, "uxtb"},
     {IC_arithLogic, "uxth"},
-
+    {IC_arithLogic, "teq"},
+    {IC_arithLogicMov, "movt"},
+    {IC_arithLogic, "ssat"},
+    {IC_arithLogic, "bfc"},
+    {IC_arithLogic, "usat"},
+    {IC_arithLogic, "rrx"},
+    {IC_arithLogic, "revsh"},
+    {IC_arithLogic, "rsc"},
+    {IC_arithLogic, "qadd"},
+    {IC_arithLogic, "qsub"},
+    {IC_arithLogic, "qadd8"},
+    {IC_arithLogic, "qadd16"},
+    {IC_arithLogic, "shadd8"},
+    {IC_arithLogic, "shadd16"},
+    {IC_arithLogic, "shsub8"},
+    {IC_arithLogic, "shsub16"},
+    {IC_arithLogic, "uqadd8"},
+    {IC_arithLogic, "uqsub16"},
+    {IC_arithLogic, "uqsub8"},
+    {IC_arithLogic, "uhadd8"},
+    {IC_arithLogic, "uhadd16"},
+    {IC_arithLogic, "uhsub8"},
+    {IC_arithLogic, "uhsub16"},
+    {IC_arithLogic, "qasx"},
+    {IC_arithLogic, "shasx"},
+    {IC_arithLogic, "uqasx"},
+    {IC_arithLogic, "uhasx"},
+    {IC_arithLogic, "qdadd"},
+    {IC_arithLogic, "qdsub"},
+    {IC_arithLogic, "pkhbt"},
+    {IC_arithLogic, "ssat16"},
+    {IC_arithLogic, "sadd8"},
+    {IC_arithLogic, "sadd16"},
+    {IC_arithLogic, "ssub8"},
+    {IC_arithLogic, "ssub16"},
+    {IC_arithLogic, "uadd8"},
+    {IC_arithLogic, "uadd16"},
+    {IC_arithLogic, "usub8"},
+    {IC_arithLogic, "usub16"},
+    {IC_arithLogic, "sasx"},
+    {IC_arithLogic, "ssax"},
+    {IC_arithLogic, "uasx"},
+    {IC_arithLogic, "usax"},
+    {IC_arithLogic, "sxtab"},
+    {IC_arithLogic, "sxtab16"},
+    {IC_arithLogic, "sxtah"},
+    {IC_arithLogic, "uxtab"},
+    {IC_arithLogic, "uxtab16"},
+    {IC_arithLogic, "uxtah"},
+    {IC_arithLogic, "stxb16"},
+    {IC_arithLogic, "utxb16"},
+    {IC_arithLogic, "qsax"},
+    {IC_arithLogic, "shsax"},
+    {IC_arithLogic, "uqsax"},    
+    {IC_arithLogic, "uhsax"},    
+    {IC_arithLogic, "pkbht"},     
+    {IC_arithLogic, "pkhtb"},       
+    {IC_arithLogic, "usat16"},
+    {IC_arithLogic, "mrs"},
+    {IC_arithLogic, "msr"},
+    {IC_arithLogic, "addw"},
+    {IC_arithLogic, "subw"},
+    {IC_arithLogicMov, "sel"},
+    {IC_arithLogicMov, "movs"},
+    {IC_arithLogicMov, "mvnsne"},
+    {IC_arithLogic, "orrs"},
+    {IC_arithLogic, "asrs"},
+    {IC_arithLogic, "rsb"},
+    {IC_arithLogic, "rsbs"},
+    {IC_arithLogic, "lsrs"},
+    {IC_arithLogic, "lsls"},
+    {IC_arithLogic, "movw"}, 
+    {IC_arithLogic, "vmrs"},
+    {IC_arithLogic, "vmsr"},
+    {IC_branch, "andeq"}, //por que não funciona pelo amor de deus
+	
+                            
     // Multiply / Divide
+    
     {IC_multDiv, "madd"},
     {IC_multDiv, "msub"},
     {IC_multDiv, "mneg"},
@@ -259,7 +419,6 @@ static instructionTableT instructionClasses[] = {
     {IC_multDiv, "smaddl"},
     {IC_multDiv, "smsubl"},
     {IC_multDiv, "smnegl"},
-    {IC_multDiv, "smull"},
     {IC_multDiv, "smulh"},
     {IC_multDiv, "umaddl"},
     {IC_multDiv, "umsubl"},
@@ -268,8 +427,37 @@ static instructionTableT instructionClasses[] = {
     {IC_multDiv, "umulh"},
     {IC_multDiv, "sdiv"},
     {IC_multDiv, "udiv"},
+    {IC_multDiv, "mla"},
+    {IC_multDiv, "smulxy"},
+    {IC_multDiv, "smlaxy"},
+    {IC_multDiv, "smulwy"},
+    {IC_multDiv, "smlawy"},
+    {IC_multDiv, "smlalxy"},
+    {IC_multDiv, "smuad"},
+    {IC_multDiv, "smuadx"},
+    {IC_multDiv, "smlad"},
+    {IC_multDiv, "smladx"},
+    {IC_multDiv, "smusd"},
+    {IC_multDiv, "smusdx"},
+    {IC_multDiv, "smlsd"},
+    {IC_multDiv, "smlsdx"},
+    {IC_multDiv, "smmul"},
+    {IC_multDiv, "smmulr"},
+    {IC_multDiv, "smmla"},
+    {IC_multDiv, "smmlar"},
+    {IC_multDiv, "smmls"},
+    {IC_multDiv, "smmlsr"},
+    {IC_multDiv, "smlald"},
+    {IC_multDiv, "smlaldx"},
+    {IC_multDiv, "smlsld"},
+    {IC_multDiv, "smldldx"},
+    {IC_multDiv, "umaal"},
+    {IC_multDiv, "smull"},
+    {IC_multDiv, "smlal"},
+    {IC_multDiv, "umlal"},
 
     // Floating Point
+    
     {IC_fpMov, "fmov"},
     {IC_fp, "fcvt"},
     {IC_fp, "fcvtas"},
@@ -312,62 +500,41 @@ static instructionTableT instructionClasses[] = {
     {IC_fp, "fccmp"},
     {IC_fp, "fccmpe"},
     {IC_fp, "fcsel"},
+    {IC_fp, "vldr"},
+    {IC_fp, "vstr"},
+    {IC_fp, "vadd"},
+    {IC_fp, "vmov"},
+    {IC_fp, "vadd.f32"},
+    {IC_fp, "vmul.f32"},
+    {IC_fp, "vmul"},
+    {IC_fp, "vdiv.f32"},
+    {IC_fp, "vdiv"},
+    {IC_fp, "vmla"},
+    {IC_fp, "vmls"},
+    {IC_fp, "vnmul"},
+    {IC_fp, "vnmla"},
+    {IC_fp, "vnmls"},
+    {IC_fp, "vcvt"},
+    {IC_fp, "vldmia"},
+    {IC_fp, "vldmiaeq"},
+    {IC_fp, "vstmia"},
+    {IC_fp, "vstmiaeq"},
 
     // Advanced SIMD
 
     /* { IC_SMID_               , "5.7.3"     }, */
     {IC_SIMD_arithLogic, "dup"},
     {IC_SIMD_arithLogic, "ins"},
-    /* { IC_SMID_arithLogic     , "mov"       }, */
     {IC_SIMD_arithLogicMov, "smov"},
     {IC_SIMD_arithLogicMov, "umov"},
 
+
     /* { IC_SMID_               , "5.7.4"     }, */
-    /* { IC_SMID_vec_arithLogic , "add"       }, */
-    /* { IC_SMID_vec_arithLogic , "and"       }, */
-    /* { IC_SMID_vec_arithLogic , "bic"       }, */
     {IC_SIMD_vec_arithLogic, "bif"},
     {IC_SIMD_vec_arithLogic, "bit"},
     {IC_SIMD_vec_arithLogic, "bsl"},
-    /* { IC_SMID_vec_arithLogic , "cmeq"      }, */
-    /* { IC_SMID_vec_arithLogic , "cmge"      }, */
-    /* { IC_SMID_vec_arithLogic , "cmgt"      }, */
-    /* { IC_SMID_vec_arithLogic , "cmhi"      }, */
-    /* { IC_SMID_vec_arithLogic , "cmhs"      }, */
-    /* { IC_SMID_vec_arithLogic , "cmle"      }, */
-    /* { IC_SMID_vec_arithLogic , "cmlo"      }, */
-    /* { IC_SMID_vec_arithLogic , "cmls"      }, */
-    /* { IC_SMID_vec_arithLogic , "cmlt"      }, */
-    /* { IC_SMID_vec_arithLogic , "cmtst"     }, */
-    /* { IC_SMID_vec_arithLogic , "eor"       }, */
-    /* { IC_SMID_vec_arithLogic , "fabd"      }, */
-    /* { IC_SMID_vec_arithLogic , "facge"     }, */
-    /* { IC_SMID_vec_arithLogic , "facgt"     }, */
-    /* { IC_SMID_vec_arithLogic , "facle"     }, */
-    /* { IC_SMID_vec_arithLogic , "faclt"     }, */
-    /* { IC_SMID_vec_arithLogic , "fadd"      }, */
-    /* { IC_SMID_vec_arithLogic , "fcmeq"     }, */
-    /* { IC_SMID_vec_arithLogic , "fcmge"     }, */
-    /* { IC_SMID_vec_arithLogic , "fcmgt"     }, */
-    /* { IC_SMID_vec_arithLogic , "fcmle"     }, */
-    /* { IC_SMID_vec_arithLogic , "fcmlt"     }, */
-    /* { IC_SMID_vec_arithLogic , "fdiv"      }, */
-    /* { IC_SMID_vec_arithLogic , "fmax"      }, */
-    /* { IC_SMID_vec_arithLogic , "fmaxnm"    }, */
-    /* { IC_SMID_vec_arithLogic , "fmin"      }, */
-    /* { IC_SMID_vec_arithLogic , "fminnm"    }, */
-    /* { IC_SMID_vec_arithLogic , "fmla"      }, */
-    /* { IC_SMID_vec_arithLogic , "fmls"      }, */
-    /* { IC_SMID_vec_arithLogic , "fmul"      }, */
-    /* { IC_SMID_vec_arithLogic , "fmulx"     }, */
-    /* { IC_SMID_vec_arithLogic , "frecps"    }, */
-    /* { IC_SMID_vec_arithLogic , "frsqrts"   }, */
-    /* { IC_SMID_vec_arithLogic , "fsub"      }, */
-    /* { IC_SMID_vec_arithLogic , "mla"       }, */
-    /* { IC_SMID_vec_arithLogic , "mls"       }, */
-    /* { IC_SMID_vec_arithLogic , "mul"       }, */
-    /* { IC_SMID_vec_arithLogic , "orn"       }, */
-    /* { IC_SMID_vec_arithLogic , "orr"       }, */
+    {IC_SIMD_vec_arithLogic, "fcmge"}, 
+    {IC_SIMD_vec_arithLogic, "fmulx"}, 
     {IC_SIMD_vec_arithLogic, "pmul"},
     {IC_SIMD_vec_arithLogic, "saba"},
     {IC_SIMD_vec_arithLogic, "sabd"},
@@ -375,75 +542,58 @@ static instructionTableT instructionClasses[] = {
     {IC_SIMD_vec_arithLogic, "shsub"},
     {IC_SIMD_vec_arithLogic, "smax"},
     {IC_SIMD_vec_arithLogic, "smin"},
-    /* { IC_SMID_vec_arithLogic , "sqadd"     }, */
-    /* { IC_SMID_vec_arithLogic , "sqdmulh"   }, */
-    /* { IC_SMID_vec_arithLogic , "sqrdmulh"  }, */
-    /* { IC_SMID_vec_arithLogic , "sqrshl"    }, */
-    /* { IC_SMID_vec_arithLogic , "sqshl"     }, */
-    /* { IC_SMID_vec_arithLogic , "sqsub"     }, */
+    {IC_SIMD_vec_arithLogic, "sqdmulh"}, 
+    {IC_SIMD_vec_arithLogic, "sqrdmulh"}, 
+    {IC_SIMD_vec_arithLogic, "sqrshl"}, 
+    {IC_SIMD_vec_arithLogic, "sqshl"}, 
+    {IC_SIMD_vec_arithLogic, "sqsub"}, 
     {IC_SIMD_vec_arithLogic, "srhadd"},
-    /* { IC_SMID_vec_arithLogic , "srshl"     }, */
-    /* { IC_SIMD_vec_arithLogic , "sshl"      }, */
-    /* { IC_SMID_vec_arithLogic , "sub"       }, */
+    {IC_SIMD_vec_arithLogic, "srshl"}, 
+    {IC_SIMD_vec_arithLogic, "sshl"}, 
     {IC_SIMD_vec_arithLogic, "uaba"},
     {IC_SIMD_vec_arithLogic, "uabd"},
     {IC_SIMD_vec_arithLogic, "uhadd"},
     {IC_SIMD_vec_arithLogic, "uhsub"},
     {IC_SIMD_vec_arithLogic, "umax"},
     {IC_SIMD_vec_arithLogic, "umin"},
-    /* { IC_SMID_vec_arithLogic , "uqrshl"    }, */
-    /* { IC_SMID_vec_arithLogic , "uqshl"     }, */
-    /* { IC_SMID_vec_arithLogic , "uqsub"     }, */
+    {IC_SIMD_vec_arithLogic, "uqrshl"}, 
+    {IC_SIMD_vec_arithLogic, "uqshl"}, 
+    {IC_SIMD_vec_arithLogic, "uqsub"}, 
     {IC_SIMD_vec_arithLogic, "urhadd"},
-    /* { IC_SMID_vec_arithLogic , "urshl"     }, */
-    /* { IC_SMID_vec_arithLogic , "ushl"      }, */
+    {IC_SIMD_vec_arithLogic, "urshl"}, 
+    {IC_SIMD_vec_arithLogic, "ushl"}, 
 
     /* { IC_SMID_               , "5.7.5"     }, */
-    /* { IC_SMID_sca_arithLogic , "add"       }, */
-    {IC_SIMD_sca_arithLogic, "cmeq"},
-    {IC_SIMD_sca_arithLogic, "cmge"},
-    {IC_SIMD_sca_arithLogic, "cmgt"},
-    {IC_SIMD_sca_arithLogic, "cmhi"},
-    {IC_SIMD_sca_arithLogic, "cmhs"},
-    {IC_SIMD_sca_arithLogic, "cmle"},
-    {IC_SIMD_sca_arithLogic, "cmlo"},
-    {IC_SIMD_sca_arithLogic, "cmls"},
-    {IC_SIMD_sca_arithLogic, "cmlt"},
-    {IC_SIMD_sca_arithLogic, "cmtst"},
-    {IC_SIMD_sca_arithLogic, "fabd"},
-    {IC_SIMD_sca_arithLogic, "facge"},
-    {IC_SIMD_sca_arithLogic, "facgt"},
-    {IC_SIMD_sca_arithLogic, "facle"},
-    {IC_SIMD_sca_arithLogic, "faclt"},
-    {IC_SIMD_sca_arithLogic, "fcmeq"},
-    {IC_SIMD_sca_arithLogic, "fcmge"},
-    {IC_SIMD_sca_arithLogic, "fcmgt"},
-    {IC_SIMD_sca_arithLogic, "fcmle"},
-    {IC_SIMD_sca_arithLogic, "fcmlt"},
-    /* { IC_SMID_sca_arithLogic , "fmulx"     }, */
-    {IC_SIMD_sca_arithLogic, "frecps"},
-    {IC_SIMD_sca_arithLogic, "frsqrts"},
-    {IC_SIMD_sca_arithLogic, "sqadd"},
-    /* { IC_SMID_sca_arithLogic , "sqdmulh"   }, */
-    /* { IC_SMID_sca_arithLogic , "sqrdmulh"  }, */
-    {IC_SIMD_sca_arithLogic, "sqrshl"},
-    /* { IC_SMID_sca_arithLogic , "sqshl"     }, */
-    {IC_SIMD_sca_arithLogic, "sqsub"},
-    {IC_SIMD_sca_arithLogic, "srshl"},
-    {IC_SIMD_sca_arithLogic, "sshl"},
-    /* { IC_SMID_sca_arithLogic , "sub"       }, */
-    {IC_SIMD_sca_arithLogic, "uqadd"},
-    {IC_SIMD_sca_arithLogic, "uqrshl"},
-    /* { IC_SMID_sca_arithLogic , "uqshl"     }, */
-    {IC_SIMD_sca_arithLogic, "uqsub"},
-    {IC_SIMD_sca_arithLogic, "urshl"},
-    {IC_SIMD_sca_arithLogic, "ushl"},
+    //{IC_SMID_sca_arithLogic, "add"}, 
+    {IC_SIMD_vec_arithLogic, "cmeq"},
+    {IC_SIMD_vec_arithLogic, "cmge"},
+    {IC_SIMD_vec_arithLogic, "cmgt"},
+    {IC_SIMD_vec_arithLogic, "cmhi"},
+    {IC_SIMD_vec_arithLogic, "cmhs"},
+    {IC_SIMD_vec_arithLogic, "cmle"},
+    {IC_SIMD_vec_arithLogic, "cmlo"},
+    {IC_SIMD_vec_arithLogic, "cmls"},
+    {IC_SIMD_vec_arithLogic, "cmlt"},
+    {IC_SIMD_vec_arithLogic, "cmtst"},
+    {IC_SIMD_vec_arithLogic, "fabd"},
+    {IC_SIMD_vec_arithLogic, "facge"},
+    {IC_SIMD_vec_arithLogic, "facgt"},
+    {IC_SIMD_vec_arithLogic, "facle"},
+    {IC_SIMD_vec_arithLogic, "faclt"},
+    {IC_SIMD_vec_arithLogic, "fcmeq"},
+    {IC_SIMD_vec_arithLogic, "fcmgt"},
+    {IC_SIMD_vec_arithLogic, "fcmle"},
+    {IC_SIMD_vec_arithLogic, "fcmlt"},
+    {IC_SIMD_vec_arithLogic, "frecps"},
+    {IC_SIMD_vec_arithLogic, "frsqrts"},
+    {IC_SIMD_vec_arithLogic, "sqadd"},
+    {IC_SIMD_vec_arithLogic, "uqadd"},
 
     /* { IC_SMID_               , "5.7.6"     }, */
     {IC_SIMD_vec_arithLogic, "addhn"},
     {IC_SIMD_vec_arithLogic, "addhn2"},
-    /* { IC_SMID_vec_arithLogic , "pmull"     }, */
-    /* { IC_SMID_vec_arithLogic , "pmull2"    }, */
+    {IC_SIMD_vec_arithLogic, "pmull"}, 
+    {IC_SIMD_vec_arithLogic, "pmull2"}, 
     {IC_SIMD_vec_arithLogic, "raddhn"},
     {IC_SIMD_vec_arithLogic, "raddhn2"},
     {IC_SIMD_vec_arithLogic, "rsubhn"},
@@ -456,18 +606,8 @@ static instructionTableT instructionClasses[] = {
     {IC_SIMD_vec_arithLogic, "saddl2"},
     {IC_SIMD_vec_arithLogic, "saddw"},
     {IC_SIMD_vec_arithLogic, "saddw2"},
-    /* { IC_SMID_vec_arithLogic , "smlal"     }, */
-    /* { IC_SMID_vec_arithLogic , "smlal2"    }, */
-    /* { IC_SMID_vec_arithLogic , "smlsl"     }, */
-    /* { IC_SMID_vec_arithLogic , "smlsl2"    }, */
-    /* { IC_SMID_vec_arithLogic , "smull"     }, */
-    /* { IC_SMID_vec_arithLogic , "smull2"    }, */
-    /* { IC_SMID_vec_arithLogic , "sqdmlal"   }, */
-    /* { IC_SMID_vec_arithLogic , "sqdmlal2"  }, */
-    /* { IC_SMID_vec_arithLogic , "sqdmlsl"   }, */
-    /* { IC_SMID_vec_arithLogic , "sqdmlsl2"  }, */
-    /* { IC_SMID_vec_arithLogic , "sqdmull"   }, */
-    /* { IC_SMID_vec_arithLogic , "sqdmull2"  }, */
+    {IC_SIMD_vec_arithLogic, "sqdmlsl"}, 
+    {IC_SIMD_vec_arithLogic, "sqdmlsl2"},   
     {IC_SIMD_vec_arithLogic, "ssubl"},
     {IC_SIMD_vec_arithLogic, "ssubl2"},
     {IC_SIMD_vec_arithLogic, "ssubw"},
@@ -482,119 +622,66 @@ static instructionTableT instructionClasses[] = {
     {IC_SIMD_vec_arithLogic, "uaddl2"},
     {IC_SIMD_vec_arithLogic, "uaddw"},
     {IC_SIMD_vec_arithLogic, "uaddw2"},
-    {IC_SIMD_vec_arithLogic, "umlal"},
-    {IC_SIMD_vec_arithLogic, "umlal2"},
-    {IC_SIMD_vec_arithLogic, "umlsl"},
-    {IC_SIMD_vec_arithLogic, "umlsl2"},
-    /* { IC_SMID_vec_arithLogic , "umull"     }, */
     {IC_SIMD_vec_arithLogic, "usubl"},
     {IC_SIMD_vec_arithLogic, "usubl2"},
     {IC_SIMD_vec_arithLogic, "usubw"},
     {IC_SIMD_vec_arithLogic, "usubw2"},
 
     /* { IC_SMID_               , "5.7.7"     }, */
-    /* { IC_SMID_sca_arithLogic , "sqdmlal"   }, */
-    /* { IC_SMID_sca_arithLogic , "sqdmlsl"   }, */
-    /* { IC_SMID_sca_arithLogic , "sqdmull"   }, */
+    {IC_SIMD_vec_arithLogic, "sqdmlal"},
 
-    /* { IC_SIMD_               , "5.7.8"     }, */
-    /* { IC_SIMD_vec_arithLogic , "abs"       }, */
-    /* { IC_SIMD_vec_arithLogic , "cls"       }, */
-    /* { IC_SIMD_vec_arithLogic , "clz"       }, */
+    /*{IC_SIMD_               , "5.7.8"     }, */
+    {IC_SIMD_vec_arithLogic, "abs"}, 
     {IC_SIMD_vec_arithLogic, "cnt"},
-    /* { IC_SIMD_vec_arithLogic , "fabs"      }, */
     {IC_SIMD_vec_arithLogic, "fcvtl"},
     {IC_SIMD_vec_arithLogic, "fcvtl2"},
     {IC_SIMD_vec_arithLogic, "fcvtn"},
     {IC_SIMD_vec_arithLogic, "fcvtn2"},
-    /* { IC_SIMD_vec_arithLogic , "fcvtxn"    }, */
+    {IC_SIMD_vec_arithLogic, "fcvtxn"}, 
     {IC_SIMD_vec_arithLogic, "fcvtxn2"},
-    /* { IC_SIMD_vec_arithLogic , "fneg"      }, */
-    /* { IC_SIMD_vec_arithLogic , "frecpe"    }, */
-    /* { IC_SIMD_vec_arithLogic , "frintx"    }, */
-    /* { IC_SIMD_vec_arithLogic , "frsqrte"   }, */
-    /* { IC_SIMD_vec_arithLogic , "fsqrt"     }, */
-    /* { IC_SIMD_vec_arithLogic , "mvn"       }, */
-    /* { IC_SIMD_vec_arithLogic , "neg"       }, */
+    {IC_SIMD_vec_arithLogic, "frecpe"}, 
+    {IC_SIMD_vec_arithLogic, "frsqrte"}, 
     {IC_SIMD_vec_arithLogic, "not"},
-    /* { IC_SIMD_vec_arithLogic , "rbit"      }, */
-    /* { IC_SIMD_vec_arithLogic , "rev16"     }, */
-    /* { IC_SIMD_vec_arithLogic , "rev32"     }, */
     {IC_SIMD_vec_arithLogic, "rev64"},
     {IC_SIMD_vec_arithLogic, "sadalp"},
     {IC_SIMD_vec_arithLogic, "saddlp"},
-    /* { IC_SIMD_vec_arithLogic , "sqabs"     }, */
-    /* { IC_SIMD_vec_arithLogic , "sqneg"     }, */
-    /* { IC_SIMD_vec_arithLogic , "sqxtn"     }, */
+    {IC_SIMD_vec_arithLogic, "sqabs"}, 
+    {IC_SIMD_vec_arithLogic, "sqneg"}, 
+    {IC_SIMD_vec_arithLogic, "sqxtn"}, 
     {IC_SIMD_vec_arithLogic, "sqxtn2"},
-    /* { IC_SIMD_vec_arithLogic , "sqxtun"    }, */
+    {IC_SIMD_vec_arithLogic, "sqxtun"}, 
     {IC_SIMD_vec_arithLogic, "sqxtun2"},
-    /* { IC_SIMD_vec_arithLogic , "suqadd"    }, */
+    {IC_SIMD_vec_arithLogic, "suqadd"}, 
     {IC_SIMD_vec_arithLogic, "uadalp"},
     {IC_SIMD_vec_arithLogic, "uaddlp"},
-    /* { IC_SIMD_vec_arithLogic , "uqxtn"     }, */
+    {IC_SIMD_vec_arithLogic, "uqxtn"}, 
     {IC_SIMD_vec_arithLogic, "uqxtn2"},
     {IC_SIMD_vec_arithLogic, "urecpe"},
     {IC_SIMD_vec_arithLogic, "ursqrte"},
-    /* { IC_SIMD_vec_arithLogic , "usqadd"    }, */
+    {IC_SIMD_vec_arithLogic, "usqadd"}, 
     {IC_SIMD_vec_arithLogic, "xtn"},
     {IC_SIMD_vec_arithLogic, "xtn2"},
 
     /* { IC_SIMD_               , "5.7.9"     }, */
-    {IC_SIMD_sca_arithLogic, "abs"},
-    {IC_SIMD_sca_arithLogic, "fcvtxn"},
-    {IC_SIMD_sca_arithLogic, "frecpe"},
-    {IC_SIMD_sca_arithLogic, "frecpx"},
-    {IC_SIMD_sca_arithLogic, "frsqrte"},
-    /* { IC_SIMD_sca_arithLogic , "neg"       }, */
-    {IC_SIMD_sca_arithLogic, "sqabs"},
-    {IC_SIMD_sca_arithLogic, "sqneg"},
-    {IC_SIMD_sca_arithLogic, "sqxtn"},
-    {IC_SIMD_sca_arithLogic, "sqxtun"},
-    {IC_SIMD_sca_arithLogic, "suqadd"},
-    {IC_SIMD_sca_arithLogic, "uqxtn"},
-    {IC_SIMD_sca_arithLogic, "usqadd"},
+    {IC_SIMD_vec_arithLogic, "frecpx"},
 
     /* { IC_SIMD_               , "5.7.10"    }, */
-    /* { IC_SIMD_vec_mult       , "fmla"      }, */
-    /* { IC_SIMD_vec_mult       , "fmls"      }, */
-    /* { IC_SIMD_vec_mult       , "fmul"      }, */
-    /* { IC_SIMD_vec_mult       , "fmulx"     }, */
-    {IC_SIMD_vec_mult, "mla"},
+    {IC_SIMD_vec_mult, "fmla"}, 
+    {IC_SIMD_vec_mult, "fmls"}, 
     {IC_SIMD_vec_mult, "mls"},
-    /* { IC_SIMD_vec_mult       , "mul"       }, */
-    {IC_SIMD_vec_mult, "smlal"},
     {IC_SIMD_vec_mult, "smlal2"},
     {IC_SIMD_vec_mult, "smlsl"},
     {IC_SIMD_vec_mult, "smlsl2"},
-    /* { IC_SIMD_vec_mult       , "smull"     }, */
     {IC_SIMD_vec_mult, "smull2"},
-    /* { IC_SIMD_vec_mult       , "sqdmlal"   }, */
     {IC_SIMD_vec_mult, "sqdmlal2"},
-    /* { IC_SIMD_vec_mult       , "sqdmlsl"   }, */
-    {IC_SIMD_vec_mult, "sqdmlsl2"},
-    /* { IC_SIMD_vec_mult       , "sqdmulh"   }, */
-    /* { IC_SIMD_vec_mult       , "sqdmull"   }, */
+    {IC_SIMD_vec_mult, "sqdmull"}, 
     {IC_SIMD_vec_mult, "sqdmull2"},
-    /* { IC_SIMD_vec_mult       , "sqrdmulh"  }, */
-    /* { IC_SIMD_vec_mult       , "umlal"     }, */
-    /* { IC_SIMD_vec_mult       , "umlal2"    }, */
-    /* { IC_SIMD_vec_mult       , "umlsl"     }, */
-    /* { IC_SIMD_vec_mult       , "umlsl2"    }, */
-    /* { IC_SIMD_vec_mult       , "umull"     }, */
+    {IC_SIMD_vec_mult, "umlal2"}, 
+    {IC_SIMD_vec_mult, "umlsl"}, 
+    {IC_SIMD_vec_mult, "umlsl2"}, 
     {IC_SIMD_vec_mult, "umull2"},
 
     /* { IC_SIMD_               , "5.7.11"    }, */
-    {IC_SIMD_sca_mult, "fmla"},
-    {IC_SIMD_sca_mult, "fmls"},
-    /* { IC_SIMD_sca_mult       , "fmul"      }, */
-    {IC_SIMD_sca_mult, "fmulx"},
-    {IC_SIMD_sca_mult, "sqdmlal"},
-    {IC_SIMD_sca_mult, "sqdmlsl"},
-    {IC_SIMD_sca_mult, "sqdmulh"},
-    {IC_SIMD_sca_mult, "sqdmull"},
-    {IC_SIMD_sca_mult, "sqrdmulh"},
-
     /* { IC_SIMD_               , "5.7.12"    }, */
     {IC_SIMD_vec_arithLogic, "ext"},
     {IC_SIMD_vec_arithLogic, "trn1"},
@@ -605,89 +692,46 @@ static instructionTableT instructionClasses[] = {
     {IC_SIMD_vec_arithLogic, "zip2"},
 
     /* { IC_SIMD_               , "5.7.13"    }, */
-    /* { IC_SIMD_vec_arithLogic , "bic"       }, */
-    /* { IC_SIMD_vec_arithLogic , "fmov"      }, */
-    /* { IC_SIMD_vec_arithLogic , "movi"      }, */
-    {IC_SIMD_vec_arithLogic, "mvni"},
-    /* { IC_SIMD_vec_arithLogic , "orr"       }, */
-
     /* { IC_SIMD_               , "5.7.14"    }, */
     {IC_SIMD_vec_arithLogic, "rshrn"},
     {IC_SIMD_vec_arithLogic, "rshrn2"},
-    /* { IC_SIMD_vec_arithLogic , "shl"       }, */
+    {IC_SIMD_vec_arithLogic, "shl"}, 
     {IC_SIMD_vec_arithLogic, "shrn"},
     {IC_SIMD_vec_arithLogic, "shrn2"},
-    /* { IC_SIMD_vec_arithLogic , "sli"       }, */
-    /* { IC_SIMD_vec_arithLogic , "sqrshrn"   }, */
+    {IC_SIMD_vec_arithLogic, "sli"}, 
+    {IC_SIMD_vec_arithLogic, "sqrshrn"},
     {IC_SIMD_vec_arithLogic, "sqrshrn2"},
-    /* { IC_SIMD_vec_arithLogic , "sqrshrun"  }, */
+    {IC_SIMD_vec_arithLogic, "sqrshrun"}, 
     {IC_SIMD_vec_arithLogic, "sqrshrun2"},
-    /* { IC_SIMD_vec_arithLogic , "sqshl"     }, */
-    /* { IC_SIMD_vec_arithLogic , "sqshlu"    }, */
-    /* { IC_SIMD_vec_arithLogic , "sqshrn"    }, */
+    {IC_SIMD_vec_arithLogic, "sqshlu"}, 
+    {IC_SIMD_vec_arithLogic, "sqshrn"}, 
     {IC_SIMD_vec_arithLogic, "sqshrn2"},
-    /* { IC_SIMD_vec_arithLogic , "sqshrun"   }, */
+    {IC_SIMD_vec_arithLogic, "sqshrun"}, 
     {IC_SIMD_vec_arithLogic, "sqshrun2"},
-    /* { IC_SIMD_vec_arithLogic , "sri"       }, */
-    /* { IC_SIMD_vec_arithLogic , "srshr"     }, */
-    /* { IC_SIMD_vec_arithLogic , "srsra"     }, */
-    /* { IC_SIMD_vec_arithLogic , "sshll"     }, */
+    {IC_SIMD_vec_arithLogic, "sri"}, 
+    {IC_SIMD_vec_arithLogic, "srshr"}, 
+    {IC_SIMD_vec_arithLogic, "srsra"}, 
+    {IC_SIMD_vec_arithLogic, "sshll"}, 
     {IC_SIMD_vec_arithLogic, "sshll2"},
-    /* { IC_SIMD_vec_arithLogic , "sshr"      }, */
-    /* { IC_SIMD_vec_arithLogic , "ssra"      }, */
+    {IC_SIMD_vec_arithLogic, "sshr"}, 
+    {IC_SIMD_vec_arithLogic, "ssra"}, 
     {IC_SIMD_vec_arithLogic, "sxtl"},
     {IC_SIMD_vec_arithLogic, "sxtl2"},
-    /* { IC_SIMD_vec_arithLogic , "uqrshrn"   }, */
+    {IC_SIMD_vec_arithLogic, "uqrshrn"}, 
     {IC_SIMD_vec_arithLogic, "uqrshrn2"},
-    /* { IC_SIMD_vec_arithLogic , "uqshl"     }, */
-    /* { IC_SIMD_vec_arithLogic , "uqshrn"    }, */
+    {IC_SIMD_vec_arithLogic, "uqshrn"}, 
     {IC_SIMD_vec_arithLogic, "uqshrn2"},
-    /* { IC_SIMD_vec_arithLogic , "urshr"     }, */
-    /* { IC_SIMD_vec_arithLogic , "ursra"     }, */
+    {IC_SIMD_vec_arithLogic, "urshr"}, 
+    {IC_SIMD_vec_arithLogic, "ursra"}, 
     {IC_SIMD_vec_arithLogic, "ushll"},
     {IC_SIMD_vec_arithLogic, "ushll2"},
-    /* { IC_SIMD_vec_arithLogic , "ushr"      }, */
-    /* { IC_SIMD_vec_arithLogic , "usra"      }, */
+    {IC_SIMD_vec_arithLogic,"ushr"}, 
+    {IC_SIMD_vec_arithLogic, "usra"}, 
     {IC_SIMD_vec_arithLogic, "uxtl"},
     {IC_SIMD_vec_arithLogic, "uxtl2"},
 
     /* { IC_SIMD_               , "5.7.15"    }, */
-    {IC_SIMD_sca_arithLogic, "shl"},
-    {IC_SIMD_sca_arithLogic, "sli"},
-    {IC_SIMD_sca_arithLogic, "sqrshrn"},
-    {IC_SIMD_sca_arithLogic, "sqrshrun"},
-    {IC_SIMD_sca_arithLogic, "sqshl"},
-    {IC_SIMD_sca_arithLogic, "sqshlu"},
-    {IC_SIMD_sca_arithLogic, "sqshrn"},
-    {IC_SIMD_sca_arithLogic, "sqshrun"},
-    {IC_SIMD_sca_arithLogic, "sri"},
-    {IC_SIMD_sca_arithLogic, "srshr"},
-    {IC_SIMD_sca_arithLogic, "srsra"},
-    {IC_SIMD_sca_arithLogic, "sshr"},
-    {IC_SIMD_sca_arithLogic, "ssra"},
-    {IC_SIMD_sca_arithLogic, "uqrshrn"},
-    {IC_SIMD_sca_arithLogic, "uqshl"},
-    {IC_SIMD_sca_arithLogic, "uqshrn"},
-    {IC_SIMD_sca_arithLogic, "urshr"},
-    {IC_SIMD_sca_arithLogic, "ursra"},
-    {IC_SIMD_sca_arithLogic, "ushr"},
-    {IC_SIMD_sca_arithLogic, "usra"},
-
-    /* { IC_SIMD_               , "5.7.16"    }, */
-    /* { IC_SIMD_vec_fp         , "fcvtzs"    }, */
-    /* { IC_SIMD_vec_fp         , "fcvtzu"    }, */
-    /* { IC_SIMD_vec_fp         , "fcvtxs"    }, */
-    /* { IC_SIMD_vec_fp         , "fcvtxu"    }, */
-    /* { IC_SIMD_vec_fp         , "scvtf"     }, */
-    /* { IC_SIMD_vec_fp         , "ucvtf"     }, */
-
-    /* { IC_SIMD_               , "5.7.17"    }, */
-    /* { IC_SIMD_sca_fp         , "fcvtzs"    }, */
-    /* { IC_SIMD_sca_fp         , "fcvtzu"    }, */
-    {IC_SIMD_sca_fp, "fcvtxs"},
-    {IC_SIMD_sca_fp, "fcvtxu"},
-    /* { IC_SIMD_sca_fp         , "scvtf"     }, */
-    /* { IC_SIMD_sca_fp         , "ucvtf"     }, */
+    {IC_SIMD_vec_arithLogic, "fcvtxs"}, 
 
     /* { IC_SIMD_               , "5.7.18"    }, */
     {IC_SIMD_vec_arithLogic, "addv"},
@@ -703,28 +747,22 @@ static instructionTableT instructionClasses[] = {
     {IC_SIMD_vec_arithLogic, "uminv"},
 
     /* { IC_SIMD_               , "5.7.19"    }, */
-    /* { IC_SIMD_vec_arithLogic , "addp"      }, */
-    /* { IC_SIMD_vec_arithLogic , "faddp"     }, */
-    /* { IC_SIMD_vec_arithLogic , "fmaxnmp"   }, */
-    /* { IC_SIMD_vec_arithLogic , "fmaxp"     }, */
-    /* { IC_SIMD_vec_arithLogic , "fminnmp"   }, */
-    /* { IC_SIMD_vec_arithLogic , "fminp"     }, */
+    {IC_SIMD_vec_arithLogic, "addp"},
+    {IC_SIMD_vec_arithLogic, "faddp"},
+    {IC_SIMD_vec_arithLogic, "fmaxnmp"}, 
+    {IC_SIMD_vec_arithLogic, "fmaxp"}, 
+    {IC_SIMD_vec_arithLogic, "fminnmp"}, 
+    {IC_SIMD_vec_arithLogic, "fminp"}, 
     {IC_SIMD_vec_arithLogic, "smaxp"},
     {IC_SIMD_vec_arithLogic, "sminp"},
     {IC_SIMD_vec_arithLogic, "umaxp"},
     {IC_SIMD_vec_arithLogic, "uminp"},
 
     /* { IC_SIMD_               , "5.7.20"    }, */
-    {IC_SIMD_sca_arithLogic, "addp"},
-    {IC_SIMD_sca_arithLogic, "faddp"},
-    {IC_SIMD_sca_arithLogic, "fmaxp"},
-    {IC_SIMD_sca_arithLogic, "fmaxnmp"},
-    {IC_SIMD_sca_arithLogic, "fminp"},
-    {IC_SIMD_sca_arithLogic, "fminnmp"},
-
     /* { IC_SIMD_               , "5.7.21"    }, */
     {IC_SIMD_vec_tbl, "tbl"},
     {IC_SIMD_vec_tbl, "tbx"},
+    {IC_SIMD_vec_tbl, "tbh"},
 
     /* { IC_SIMD_               , "5.7.22"    }, */
     /* { IC_SIMD_               , "5.7.22.1"  }, */
@@ -747,8 +785,6 @@ static instructionTableT instructionClasses[] = {
     {IC_SIMD_crypto, "aese"},
     {IC_SIMD_crypto, "aesimc"},
     {IC_SIMD_crypto, "aesmc"},
-    {IC_SIMD_crypto, "pmull"},
-    {IC_SIMD_crypto, "pmull2"},
     {IC_SIMD_crypto, "sha1c"},
     {IC_SIMD_crypto, "sha1h"},
     {IC_SIMD_crypto, "sha1m"},
@@ -763,8 +799,6 @@ static instructionTableT instructionClasses[] = {
     /* { IC_system              , "5.8.1"     }, */
     /* { IC_system              , "5.8.1.1"   }, */
     {IC_system, "hvc"},
-    {IC_system, "smc"},
-    {IC_system, "svc"},
 
     /* { IC_system              , "5.8.1.2"   }, */
     {IC_system, "brk"},
@@ -775,9 +809,6 @@ static instructionTableT instructionClasses[] = {
     {IC_system, "hlt"},
 
     /* { IC_system              , "5.8.2"     }, */
-    {IC_system, "mrs"},
-    {IC_system, "msr"},
-
     /* { IC_system              , "5.8.3"     }, */
     {IC_system, "sys"},
     {IC_system, "sysl"},
@@ -787,20 +818,171 @@ static instructionTableT instructionClasses[] = {
     /* { IC_system              , "5.8.4"     }, */
     {IC_system, "nop"},
     {IC_system, "yield"},
-    {IC_system, "wfe"},
-    {IC_system, "wfi"},
-    {IC_system, "sev"},
     {IC_system, "sevl"},
+    {IC_system, "dbg"},
 
     /* { IC_system              , "5.8.5"     }, */
-    {IC_system, "clrex"},
-    {IC_system, "dsb"},
     {IC_system, "dmb"},
     {IC_system, "isb"},
     {IC_system, "tlbi"},
 
     {IC_system, "eret"},
-
+    
+    //INSTR MISC.
+    
+    {IC_system, "lui"},
+    {IC_system, "aupic"},
+    {IC_system, "jal"},
+    {IC_system, "jalr"},
+    {IC_system, "beq"},
+    {IC_system, "bne"},
+    {IC_system, "blt"},
+    {IC_system, "bge"},
+    {IC_system, "bltu"},
+    {IC_system, "bgeu"},
+    {IC_system, "lb"},
+    {IC_system, "lh"},
+    {IC_system, "lw"},
+    {IC_system, "lbu"},
+    {IC_system, "lhu"},
+    {IC_system, "sb"},
+    {IC_system, "sh"},
+    {IC_system, "sw"},
+    {IC_system, "addi"},
+    {IC_system, "slti"},
+    {IC_system, "sltiu"},
+    {IC_system, "xori"},
+    {IC_system, "ori"},
+    {IC_system, "andi"},
+    //{IC_system, "slli"},
+    //{IC_system, "srli"},
+    //{IC_system, "srai"},
+    //{IC_system, "add"},
+    //{IC_system, "sub"},
+    {IC_system, "sll"},
+    {IC_system, "slt"},
+    {IC_system, "sltu"},
+    {IC_system, "xor"},
+    {IC_system, "srl"},
+    {IC_system, "sra"},
+    //{IC_system, "or"},
+    //{IC_system, "and"},
+    {IC_system, "fence"},
+    {IC_system, "fence.i"},
+    {IC_system, "ecall"},
+    {IC_system, "ebreak"},
+    {IC_system, "csrrw"},
+    {IC_system, "csrrs"},
+    {IC_system, "csrrc"},
+    {IC_system, "csrrwi"},
+    {IC_system, "csrrsi"},
+    {IC_system, "csrrci"},
+    {IC_system, "lwu"},
+    {IC_system, "ld"},
+    {IC_system, "sd"},
+    {IC_system, "slli"},
+    {IC_system, "srli"},
+    {IC_system, "srai"},
+    {IC_system, "addiw"},
+    {IC_system, "slliw"},
+    {IC_system, "srliw"},
+    {IC_system, "sraiw"},
+    {IC_system, "sllw"},
+    {IC_system, "srlw"},
+    {IC_system, "sraw"},
+    {IC_system, "cpsid"},
+    {IC_system, "cpsie"},
+    
+    //Correcting Default Instructions
+    //Instr. não inclusas não foram ainda corretamente especificadas
+    /*
+    {IC_arithLogicMov, "movs"},
+    {IC_memoryLoad, "ldr"},
+    {IC_arithLogic, "and"},
+    {IC_branch, "bkpt"},
+    {IC_arithLogic, "lsls"},
+    {IC_memoryLoad, "ldr"},
+    {IC_memoryLoad, "stmia"}, //ainda não inclusa
+    {IC_arithLogic, "lsl"},
+    {IC_arithLogic, "adds"},
+    {IC_memoryStore, "strh"},
+    {IC_memoryLoad, "ldrb"},
+    {IC_arithLogic, "asrs"},
+    {IC_arithLogic, "lsrs"},
+    {IC_arithLogic, "orr"},
+    {IC_arithLogic, "uxtb"},
+    {IC_arithLogic, "ldmia"}, //ainda não inclusa
+    {IC_arithLogic, "cmp"},
+    {IC_memoryStore, "str"},
+    {IC_memoryLoad, "ldrsb"},
+    {IC_arithLogic, "add"},
+    {IC_multDiv, "mul"},
+    {IC_memoryLoad, "ldrh"},
+    {IC_memoryStore, "strb"},
+    {IC_arithLogic, "subs"},
+    {IC_arithLogic, "cmn"},
+    {IC_arithLogic, "addw"},
+    {IC_arithLogic, "sxth"},
+    {IC_arithLogic, "stc2"}, //ainda não inclusa
+    {IC_branch, "ble"},
+    {IC_arithLogic, "sxtah"},
+    {IC_branch, "bl"},
+    {IC_branch, "b"},
+    {IC_arithLogic, "eors"},
+    {IC_arithLogic, "bgt"}, //ainda não inclusa
+    {IC_arithLogic, "sxtb16"}, //ainda não inclusa
+    {IC_arithLogic, "orrs"},
+    {IC_arithLogic, "shadd8"}, //ainda não inclusa
+    {IC_arithLogic, "smlabb"}, //ainda não inclusa
+    {IC_multDiv, "smlad"},
+    {IC_system, "bne"},
+    {IC_arithLogic, "pkhbt"},
+    {IC_branch, "cbz"},
+    {IC_branch, "blx"},
+    {IC_arithLogic, "ssat"},
+    {IC_memoryLoad, "pop"},
+    {IC_memoryStore, "push"},
+    {IC_branch, "svc"},
+    {IC_arithLogic, "vmov.f32"}, //ainda não inclusa
+    {IC_arithLogic, "cdp2"}, //ainda não inclusa
+    {IC_arithLogic, "ldcl"}, //ainda não inclusa
+    {IC_multDiv, "mla"},
+    {IC_arithLogic, "vpmax.s8"}, //ainda não inclusa
+    {IC_arithLogic, "vst1.64"}, //ainda não inclusa
+    {IC_arithLogic, "mrc2"}, //ainda não inclusa
+    {IC_arithLogic, "vshr.u32"}, //ainda não inclusa
+    {IC_arithLogic, "ldc2l"}, //ainda não inclusa
+    {IC_system, "blt"},
+    {IC_system, "bge"},
+    {IC_arithLogic, "vsli.64"}, //ainda não inclusa
+    {IC_arithLogic, "vtbx.8"}, //ainda não inclusa
+    {IC_arithLogic, "vcge.f32"}, //ainda não inclusa
+    {IC_arithLogic, "vmls.f32"}, //ainda não inclusa
+    {IC_arithLogic, "vhadd.s32"}, //ainda não inclusa
+    {IC_arithLogic, "vhadd.u16"}, //ainda não inclusa
+    {IC_arithLogic, "vhadd.s8"}, //ainda não inclusa
+    {IC_arithLogic, "rfedb"}, //ainda não inclusa
+    {IC_system, "nop"},
+    {IC_arithLogic, "ssat"},
+    {IC_arithLogic, "cdp"}, //ainda não inclusa
+    {IC_arithLogic, "vst2.8"}, //ainda não inclusa
+    {IC_arithLogic, "ittee"}, //ainda não inclusa
+    {IC_arithLogic, "ldrsbt"}, //ainda não inclusa
+    {IC_arithLogic, "vtbx.8"}, //ainda não inclusa
+    {IC_arithLogic, "vext.8"}, //ainda não inclusa
+    {IC_arithLogic, "vtbl.8"}, //ainda não inclusa
+    {IC_arithLogic, "vrshl.u8"}, //ainda não inclusa
+    {IC_arithLogic, "vsubl.s32"}, //ainda não inclusa
+    {IC_memoryStore, "stmdb"},
+    {IC_arithLogic, "vabd.u8"}, //ainda não inclusa
+    {IC_arithLogic, "mcr2"}, //ainda não inclusa
+    {IC_arithLogic, "vfma.f32"}, //ainda não inclusa
+    {IC_arithLogic, "vcmpe.f64"}, //ainda não inclusa
+    {IC_arithLogic, "srsdb"}, //ainda não inclusa
+    {IC_arithLogic, "vmov.f16"}, //ainda não inclusa
+    {IC_arithLogic, "stc2l"}, //ainda não inclusa
+    {IC_branch, "cbnz"},*/
+      
     {IC_default, NULL}};
 
 // Root of tree maintained by the treeSarch routines
@@ -848,6 +1030,209 @@ instructionTableAdd(void **rootP, instructionTableP entry) {
             entry->mnemonic);
 }
 
+//Structs criadas para cada conjunto de registrador
+
+struct regLifetimeXn {
+	char* name;
+	int lifetime;
+	int interval;
+	int written;
+	int read;
+	int lifetimeExtra;
+};
+
+struct regLifetimeVn {
+	char* name;
+	int lifetime;
+	int interval;
+	int written;
+	int read;
+	int lifetimeExtra;
+};
+
+struct regLifetimeRn {
+	char* name;
+	int lifetime;
+	int interval;
+	int written;
+	int read;
+	int lifetimeExtra;
+};
+
+int flag = 0; //Flag que indica se um registrador está sendo lido ou escrito. 1 se lido, 2 se escrito.
+
+//Inicialização de cada uma das structs. Elas precisam ser iniciadas, mas se forem inicadas dentro de uma função os valores são zerados
+
+struct regLifetimeXn *regLifetime_xn() {
+	
+    static int initialized = 0;
+    static struct regLifetimeXn *xn;
+    int i = 0;
+    
+    if(initialized == 0){
+    xn = malloc(sizeof(struct regLifetimeXn) * 31);
+    	if(xn == NULL){
+    	exit(1);
+    	}  	
+    
+    for(i = 0; i<31; i++){
+        xn[i].name = ""; 
+    	xn[i].lifetime = 0;
+    	xn[i].interval = 0;
+    	xn[i].written = 0;
+    	xn[i].read = 0;
+    	xn[i].lifetimeExtra = 0;
+    }
+    
+    for(i = 0; i<31; i++){
+    xn[i].name = (char*) malloc((strlen(xn[i].name) + 1) * sizeof(char));
+    }
+    
+    strcpy(xn[0].name, "x0");
+    strcpy(xn[1].name, "x1");
+    strcpy(xn[2].name, "x2");
+    strcpy(xn[3].name, "x3");
+    strcpy(xn[4].name, "x4");
+    strcpy(xn[5].name, "x5");
+    strcpy(xn[6].name, "x6");
+    strcpy(xn[7].name, "x7");
+    strcpy(xn[8].name, "x8");
+    strcpy(xn[9].name, "x9");
+    strcpy(xn[10].name, "x10");
+    strcpy(xn[11].name, "x11");    
+    strcpy(xn[12].name, "x12");
+    strcpy(xn[13].name, "x13");
+    strcpy(xn[14].name, "x14");
+    strcpy(xn[15].name, "x15");
+    strcpy(xn[16].name, "x16");
+    strcpy(xn[17].name, "x17");
+    strcpy(xn[18].name, "x18");
+    strcpy(xn[19].name, "x19");
+    strcpy(xn[20].name, "x20");
+    strcpy(xn[21].name, "x21");
+    strcpy(xn[22].name, "x22");
+    strcpy(xn[23].name, "x23");
+    strcpy(xn[24].name, "x24");
+    strcpy(xn[25].name, "x25"); 
+    strcpy(xn[26].name, "x26");
+    strcpy(xn[27].name, "x27");
+    strcpy(xn[28].name, "x28");
+    strcpy(xn[29].name, "x29");
+    strcpy(xn[30].name, "x30");
+    
+    initialized = 1;
+    }
+    return xn;
+}
+
+struct regLifetimeVn *regLifetime_vn() {
+	
+    static int initialized = 0;
+    static struct regLifetimeVn *vn;
+    int i = 0;
+    
+    if(initialized == 0){
+    vn = malloc(sizeof(struct regLifetimeVn) * 32);
+    	if(vn == NULL){
+    	exit(1);
+    	}  	
+    
+    for(i = 0; i<32; i++){
+        vn[i].name = ""; 
+    	vn[i].lifetime = 0;
+    	vn[i].interval = 0;
+    	vn[i].written = 0;
+    	vn[i].read = 0;
+    	vn[i].lifetimeExtra = 0;
+    }
+    
+    for(i = 0; i<32; i++){
+    vn[i].name = (char*) malloc((strlen(vn[i].name) + 1) * sizeof(char));
+    }
+    
+    strcpy(vn[0].name, "v0");
+    strcpy(vn[1].name, "v1");
+    strcpy(vn[2].name, "v2");
+    strcpy(vn[3].name, "v3");
+    strcpy(vn[4].name, "v4");
+    strcpy(vn[5].name, "v5");
+    strcpy(vn[6].name, "v6");
+    strcpy(vn[7].name, "v7");
+    strcpy(vn[8].name, "v8");
+    strcpy(vn[9].name, "v9");
+    strcpy(vn[10].name, "v10");
+    strcpy(vn[11].name, "v11");    
+    strcpy(vn[12].name, "v12");
+    strcpy(vn[13].name, "v13");
+    strcpy(vn[14].name, "v14");
+    strcpy(vn[15].name, "v15");
+    strcpy(vn[16].name, "v16");
+    strcpy(vn[17].name, "v17");
+    strcpy(vn[18].name, "v18");
+    strcpy(vn[19].name, "v19");
+    strcpy(vn[20].name, "v20");
+    strcpy(vn[21].name, "v21");
+    strcpy(vn[22].name, "v22");
+    strcpy(vn[23].name, "v23");
+    strcpy(vn[24].name, "v24");
+    strcpy(vn[25].name, "v25"); 
+    strcpy(vn[26].name, "v26");
+    strcpy(vn[27].name, "v27");
+    strcpy(vn[28].name, "v28");
+    strcpy(vn[29].name, "v29");
+    strcpy(vn[30].name, "v30");
+    strcpy(vn[31].name, "v31"); 
+
+    initialized = 1;
+    }
+    return vn;
+}
+
+struct regLifetimeRn *regLifetime_rn() {
+	
+    static int initialized = 0;
+    static struct regLifetimeRn *rn;
+    int i = 0;
+    
+    if(initialized == 0){
+    rn = malloc(sizeof(struct regLifetimeRn) * 13);
+    	if(rn == NULL){
+    	exit(1);
+    	}
+    
+    	
+    for(i = 0; i<13; i++){
+        rn[i].name = ""; 
+    	rn[i].lifetime = 0;
+    	rn[i].interval = 0;
+    	rn[i].written = 0;
+    	rn[i].read = 0;
+    	rn[i].lifetimeExtra = 0;
+    }
+    
+    for(i = 0; i<13; i++){
+    rn[i].name = (char*) malloc((strlen(rn[i].name) + 1) * sizeof(char));
+    }
+    
+    strcpy(rn[0].name, "r0");
+    strcpy(rn[1].name, "r1");
+    strcpy(rn[2].name, "r2");
+    strcpy(rn[3].name, "r3");
+    strcpy(rn[4].name, "r4");
+    strcpy(rn[5].name, "r5");
+    strcpy(rn[6].name, "r6");
+    strcpy(rn[7].name, "r7");
+    strcpy(rn[8].name, "r8");
+    strcpy(rn[9].name, "r9");
+    strcpy(rn[10].name, "r10");
+    strcpy(rn[11].name, "r11");    
+    strcpy(rn[12].name, "r12");
+    
+    initialized = 1;
+    }
+    return rn;
+}
+
 //
 // Return string corresponding to instruction class
 //
@@ -892,6 +1277,10 @@ static const char *instrClassName(instrClassesE class) {
 void
 armReport(vmiosObjectP object) {
     const char *ceFile = object->filename;
+    struct regLifetimeXn *xn = regLifetime_xn();
+    struct regLifetimeVn *vn = regLifetime_vn();
+    struct regLifetimeRn *rn = regLifetime_rn(); 
+    
 
     vmiPrintf(
             "\nEstimated Default instructions                                  " FMT_64u
@@ -1093,7 +1482,36 @@ armReport(vmiosObjectP object) {
         object->regD29,
         object->regD30,
         object->regD31);
-
+        
+    vmiPrintf(
+      	    "\n\n\nInteger Registers\n\n\nr0        " FMT_64u
+            "\nr1        " FMT_64u
+            "\nr2        " FMT_64u
+            "\nr3        " FMT_64u
+            "\nr4        " FMT_64u
+            "\nr5        " FMT_64u
+            "\nr6        " FMT_64u
+            "\nr7        " FMT_64u
+            "\nr8        " FMT_64u
+            "\nr9        " FMT_64u
+            "\nr10       " FMT_64u
+            "\nr11       " FMT_64u
+            "\nr12       " FMT_64u
+            "\nlr       " FMT_64u,
+        object->regR0,
+        object->regR1,
+        object->regR2,
+        object->regR3,
+        object->regR4,
+        object->regR5,
+        object->regR6,
+        object->regR7,
+        object->regR8,
+        object->regR9,
+        object->regR10,
+        object->regR11,
+        object->regR12,
+        object->regLr);
 
     vmiPrintf(
             "\n\n\nOthers"
@@ -1106,8 +1524,41 @@ armReport(vmiosObjectP object) {
             object->regPc,
             object->regOthers,
             object->faultIcount,
-            object->iCount);
-
+            object->iCount);  
+            
+           
+    int i = 0;        
+    
+    vmiPrintf("\nLifetime\n");
+    vmiPrintf("\n");
+    for(i = 0; i<31; i++){
+    if(xn[i].lifetime != 0)        
+    vmiPrintf("x%d: %d\n", i, xn[i].lifetime);
+    }
+    for(i = 0; i<32; i++){      
+    if(vn[i].lifetime != 0)  
+    vmiPrintf("v%d: %d\n", i, vn[i].lifetime);
+    }
+    for(i = 0; i<13; i++){ 
+    if(rn[i].lifetime != 0)       
+    vmiPrintf("r%d: %d\n", i, rn[i].lifetime);
+    }
+    
+    vmiPrintf("\nIntervals\n");
+    vmiPrintf("\n");
+    for(i = 0; i<31; i++){
+    if(xn[i].lifetime != 0)        
+    vmiPrintf("x%d: %d\n", i, xn[i].interval);
+    }
+    for(i = 0; i<32; i++){
+    if(vn[i].lifetime != 0)        
+    vmiPrintf("v%d: %d\n", i, vn[i].interval);
+    }
+    for(i = 0; i<13; i++){
+    if(rn[i].lifetime != 0)        
+    vmiPrintf("r%d: %d\n", i, rn[i].interval);
+    }
+     
     if (ceFile) {
         FILE *pFile = fopen(ceFile, "a");
 
@@ -1327,7 +1778,7 @@ armReport(vmiosObjectP object) {
                     object->regOthers,
                     object->faultIcount,
                     object->iCount);
-            fclose(pFile);
+            fclose(pFile);       
 
         } else {
             vmiMessage("W", PREFIX "_WFE",
@@ -1571,11 +2022,11 @@ armCondExecution(vmiosObjectP object, armCondition cond) {
    ,11,11,11,11  //24
    ,12,12,12,12};//28
    */
+   
 
 static void addRegCount(Addr thisPC, vmiosObjectP object, vmiRegInfoCP reg){
 
     if (object->active){
-
         if (object->watchReg){
             if (strcmp(reg->name, object->targetRegister) == 0){
                 FILE * pfile = fopen(object->filename, "a");
@@ -1583,7 +2034,7 @@ static void addRegCount(Addr thisPC, vmiosObjectP object, vmiRegInfoCP reg){
                 fclose(pfile);
                 object->watchReg = False;
             }
-        }
+        }        
 
         if (strcmp(reg->name, "x0") == 0)
             object->regX0++;
@@ -1717,22 +2168,49 @@ static void addRegCount(Addr thisPC, vmiosObjectP object, vmiRegInfoCP reg){
             object->regD30++;
         else if (strcmp(reg->name, "d31") == 0 || strcmp(reg->name, "v31") == 0)
             object->regD31++;
-        else{
+        else if (strcmp(reg->name, "r0") == 0)
+            object->regR0++;
+        else if (strcmp(reg->name, "r1") == 0)
+            object->regR1++;
+        else if (strcmp(reg->name, "r2") == 0)
+            object->regR2++;
+        else if (strcmp(reg->name, "r3") == 0)
+            object->regR3++;
+        else if (strcmp(reg->name, "r4") == 0)
+            object->regR4++;
+        else if (strcmp(reg->name, "r5") == 0)
+            object->regR5++;
+        else if (strcmp(reg->name, "r6") == 0)
+            object->regR6++;
+        else if (strcmp(reg->name, "r7") == 0)
+            object->regR7++;
+        else if (strcmp(reg->name, "r8") == 0)
+            object->regR8++;     
+        else if (strcmp(reg->name, "r9") == 0)
+            object->regR9++;     
+        else if (strcmp(reg->name, "r10") == 0)
+            object->regR10++;     
+        else if (strcmp(reg->name, "r11") == 0)
+            object->regR11++;     
+        else if (strcmp(reg->name, "r12") == 0)
+            object->regR12++;          
+        else
             object->regOthers++;
-        }
-    }
+		
+    	}
 
 }
 
 // Emit morph code to add cycles to additionalCycles counter
 //
 static void
-addInstCount(vmiosObjectP object, instrClassesE iClass) {
+addInstCount(vmiosObjectP object, instrClassesE iClass, Addr thisPC) {
 
     if (object->active){
 
         switch (iClass) {
             case IC_default:
+                printf("Instruction default: %s\n", vmirtDisassemble(object->processor, thisPC, DSA_NORMAL));
                 object->defaultCount++;
                 break;
 
@@ -1937,16 +2415,155 @@ static void addToICount(Addr thisPC, vmiosObjectP object){
 
 }
 
+// A função teste é o que calcula o lifetime e o intervalo. Para o lifetime há 5 condicionais:
+// 1.Registrador está sendo escrito: nesse caso uma flag será ativada
+// 2.Registrador não está sendo lido ou escrito, mas se a flag estiver ativada ele ainda está vulnerável
+// 3.Registrador está sendo lido. Nesse caso a flag é desativada
+// 4.Registrador não está sendo lido ou escrito e a flag está desativada: uma nova variável é acrescida, pois não há como saber se o registrador será lido novamente ao longo da operação
+// 5.Registrador foi lido mas a flag está desativada: a variável criada no item anterior é somada ao lifetime para considerar o tempo que o mesmo está vulnerável para além do primeiro ciclo de escrita-leitura 
+
+long int lastPC = 0;
+
+static void teste(Addr thisPC, vmiosObjectP object, vmiRegInfoCP reg){
+	
+	if(object->active){
+	
+		
+	lastPC = thisPC;
+	
+	int i = 0;	
+
+	struct regLifetimeXn *xn = regLifetime_xn(); 	
+	struct regLifetimeVn *vn = regLifetime_vn(); 		
+	struct regLifetimeRn *rn = regLifetime_rn(); 
+	
+//Xn
+		for(i=0;i<31;i++){
+		if((strcmp(reg->name, xn[i].name) == 0) && flag == 2){
+			xn[i].interval++;
+			if(xn[i].written == 0)
+				xn[i].written = 1;
+			if(xn[i].written == 1)
+				xn[i].lifetime++;
+			if(xn[i].read == 1)
+				xn[i].lifetimeExtra++;
+		}
+		
+		if((strcmp(reg->name, xn[i].name) == 0) && xn[i].written == 1 && flag == 1){
+			if(lastPC != thisPC)
+				xn[i].lifetime++;
+			xn[i].written = 2;
+			xn[i].read = 1;
+		}
+		
+		if((strcmp(reg->name, xn[i].name) != 0) && (reg->name[0] == 'x' || reg->name[0] == 'd') && xn[i].written == 1 && flag == 2){
+			xn[i].lifetime++;
+		}
+		
+		if((strcmp(reg->name, xn[i].name) == 0) && xn[i].read == 1 && flag == 1){
+			if(lastPC != thisPC)
+				xn[i].lifetimeExtra++;
+			xn[i].lifetime = xn[i].lifetime + xn[i].lifetimeExtra++;
+			xn[i].lifetimeExtra = 0;
+		}
+		
+		if((strcmp(reg->name, xn[i].name) != 0) && (reg->name[0] == 'x' || reg->name[0] == 'd') && xn[i].read == 1 && flag == 2){
+			xn[i].lifetimeExtra++;
+		}
+		}
+		
+//Vn
+		for(i=0;i<32;i++){
+		if((strcmp(reg->name, vn[i].name) == 0) && flag == 2){
+			vn[i].interval++;
+			if(vn[i].written == 0)
+				vn[i].written = 1;
+			if(vn[i].written == 1)
+				vn[i].lifetime++;
+			if(vn[i].read == 1)
+				vn[i].lifetimeExtra++;
+		}
+		
+		if((strcmp(reg->name, vn[i].name) == 0) && vn[i].written == 1 && flag == 1){
+			if(lastPC != thisPC)
+				vn[i].lifetime++;
+			vn[i].written = 2;
+			vn[i].read = 1;
+		}
+		
+		if((strcmp(reg->name, vn[i].name) != 0) && (reg->name[0] == 'v' || reg->name[0] == 'd') && vn[i].written == 1 && flag == 2){
+			vn[i].lifetime++;
+		}
+		
+		if((strcmp(reg->name, vn[i].name) == 0) && vn[i].read == 1 && flag == 1){
+			if(lastPC != thisPC)
+				vn[i].lifetimeExtra++;
+			vn[i].lifetime = vn[i].lifetime + vn[i].lifetimeExtra++;
+			vn[i].lifetimeExtra = 0;
+		}
+		
+		if((strcmp(reg->name, vn[i].name) != 0) && (reg->name[0] == 'v' || reg->name[0] == 'd') && vn[i].read == 1 && flag == 2){
+			vn[i].lifetimeExtra++;
+		}
+		}
+	
+//Rn 		
+		
+		for(i=0;i<13;i++){
+
+		if((strcmp(reg->name, rn[i].name) == 0) && flag == 2){
+			rn[i].interval++;
+			if(rn[i].written == 0)
+				rn[i].written = 1;
+			if(rn[i].written == 1)
+				rn[i].lifetime++;
+			if(rn[i].read == 1)
+				rn[i].lifetimeExtra++;
+		}
+		
+		if((strcmp(reg->name, rn[i].name) == 0) && rn[i].written == 1 && flag == 1){
+			if(lastPC != thisPC)
+				rn[i].lifetime++;
+			rn[i].written = 2;
+			rn[i].read = 1;
+		}
+		
+		if((strcmp(reg->name, rn[i].name) != 0) && (reg->name[0] == 'r' || reg->name[0] == 'd') && rn[i].written == 1 && flag == 2){
+			rn[i].lifetime++;
+		}
+		
+		if((strcmp(reg->name, rn[i].name) == 0) && rn[i].read == 1 && flag == 1){
+			if(lastPC != thisPC)
+				rn[i].lifetimeExtra++;
+			rn[i].lifetime = rn[i].lifetime + rn[i].lifetimeExtra++;
+			rn[i].lifetimeExtra = 0;
+		}
+		
+		if((strcmp(reg->name, rn[i].name) != 0) && (reg->name[0] == 'r' || reg->name[0] == 'd') && rn[i].read == 1 && flag == 2){
+			rn[i].lifetimeExtra++;
+		}		
+		}
+		
+	}	
+}
+
 #define SELECT_ATTRS                                                     \
     (OCL_DS_REG_R | OCL_DS_REG_W | OCL_DS_RANGE_R | OCL_DS_RANGE_W | \
      OCL_DS_FETCH | OCL_DS_NEXTPC | OCL_DS_ADDRESS)
 
 VMIOS_MORPH_FN(armCEMorphCB) {
 
+	//struct regLifetimeXn *xn = regLifetime_xn(); 	
+	//struct regLifetimeVn *vn = regLifetime_vn(); 		
+	//struct regLifetimeRn *rn = regLifetime_rn(); 
+	
+	//int i = 0;
+
     armCEDataP CEData = object->procCEData;
 
     vmiRegInfoCP regDest = NULL;
     octiaRegListP regList = NULL;
+    
 
     // get instruction attributes
     octiaAttrP attrs =
@@ -1970,8 +2587,12 @@ VMIOS_MORPH_FN(armCEMorphCB) {
             vmimtArgNatAddress(object);
             vmimtArgNatAddress(reg);
             vmimtCall((vmiCallFn)addRegCount);
+            flag=1;
+            teste(thisPC, object, reg);
         }
+
     }
+
 
     if ((regList = ocliaGetFirstWrittenReg(attrs))!=NULL) {
         for (; regList; regList = ocliaGetRegListNext(regList)){
@@ -1980,17 +2601,20 @@ VMIOS_MORPH_FN(armCEMorphCB) {
             vmimtArgNatAddress(object);
             vmimtArgNatAddress(reg);
             vmimtCall((vmiCallFn)addRegCount);
+            flag=2;
+            teste(thisPC, object, reg);
         }
     }
 
     if (attrs){
         vmimtArgSimAddress(thisPC);
         vmimtArgNatAddress(object);
-        vmimtCall((vmiCallFn)addToICount);
+        vmimtCall((vmiCallFn)addToICount); //Retorna o número de instruções executadas
     }
     vmimtArgNatAddress(object);
     vmimtArgUns64(iClass);
-    vmimtCall((vmiCallFn)addInstCount);
+    vmimtCall((vmiCallFn)addInstCount); //Retorna o número dos tipos de instruções executadas
+
 
     // Update previous morph time instruction info
     CEData->prevClassMT = iClass;
@@ -2060,6 +2684,109 @@ PROC_ENABLE_FN(armCEEnable) {
         // Add branch notifier
         //vmirtRegisterBranchNotifier(object->processor,
         // armBranchNotifier, object);
+
+    }
+
+    if (instructionTableSearchTreeRoot == NULL) {
+        // Initialize instruction class treeSearch table for fast
+        // lookups
+        instructionTableP entry = &instructionClasses[0];
+
+        while (entry->mnemonic != NULL) {
+            instructionTableAdd(&instructionTableSearchTreeRoot,
+                    entry++);
+        }
+    }
+}
+
+PROC_ENABLE_FN(armmCEEnable) {
+    if (object->procCEData == NULL) {
+        armCEDataP CEData = STYPE_CALLOC(armCEDataT);
+        object->procCEData = CEData;
+
+        // Set function callbacks for this processor
+        object->procMorphCB = armCEMorphCB;
+        object->procDestructor = armDestructor;
+
+        // initialize previous instruction state
+        CEData->prevClassRT = IC_initial;
+        CEData->prevClassMT = IC_initial;
+
+        // Get cpsr register (required)
+        CEData->cpsr = getReg(object, "cpsr", False);
+
+        // Add branch notifier
+        //vmirtRegisterBranchNotifier(object->processor,
+        // armBranchNotifier, object);
+
+    }
+
+    if (instructionTableSearchTreeRoot == NULL) {
+        // Initialize instruction class treeSearch table for fast
+        // lookups
+        instructionTableP entry = &instructionClasses[0];
+
+        while (entry->mnemonic != NULL) {
+            instructionTableAdd(&instructionTableSearchTreeRoot,
+                    entry++);
+        }
+    }
+}
+
+PROC_ENABLE_FN(rh850CEEnable) {
+    if (object->procCEData == NULL) {
+        armCEDataP CEData = STYPE_CALLOC(armCEDataT);
+        object->procCEData = CEData;
+
+        // Set function callbacks for this processor
+        object->procMorphCB = armCEMorphCB;
+        object->procDestructor = armDestructor;
+
+        // initialize previous instruction state
+        CEData->prevClassRT = IC_initial;
+        CEData->prevClassMT = IC_initial;
+
+        // Get cpsr register (required)
+        CEData->cpsr = getReg(object, "cpsr", False);
+
+        // Add branch notifier
+        //vmirtRegisterBranchNotifier(object->processor,
+        // armBranchNotifier, object);
+
+    }
+
+    if (instructionTableSearchTreeRoot == NULL) {
+        // Initialize instruction class treeSearch table for fast
+        // lookups
+        instructionTableP entry = &instructionClasses[0];
+
+        while (entry->mnemonic != NULL) {
+            instructionTableAdd(&instructionTableSearchTreeRoot,
+                    entry++);
+        }
+    }
+}
+
+PROC_ENABLE_FN(m5100CEEnable) {
+    if (object->procCEData == NULL) {
+        armCEDataP CEData = STYPE_CALLOC(armCEDataT);
+        object->procCEData = CEData;
+
+        // Set function callbacks for this processor
+        object->procMorphCB = armCEMorphCB;
+        object->procDestructor = armDestructor;
+
+        // initialize previous instruction state
+        CEData->prevClassRT = IC_initial;
+        CEData->prevClassMT = IC_initial;
+
+        // Get cpsr register (required)
+        CEData->cpsr = getReg(object, "cpsr", False);
+
+        // Add branch notifier
+        //vmirtRegisterBranchNotifier(object->processor,
+        // armBranchNotifier, object);
+
     }
 
     if (instructionTableSearchTreeRoot == NULL) {
